@@ -389,7 +389,6 @@ const MAX_LOG = 300;
 
 // Built-in examples, used only when this copy cannot save online (opened as a local file).
 const EXAMPLE_PRODUCTS = [
-  {id: 'aytest-a', barcode: '200001000102', name: 'ChatGPT AYTEST Product A', sku: 'CHATGPT-AYTEST-A', unit: '1 each'},
   {id: 'forest-mint', barcode: '5061028595751', name: 'Off-Stamp Ice Cube Forest Mint', sku: 'GPT-PHOTO-OFFSTAMP-FOREST-MINT', unit: '1 five-piece pack'},
   {id: 'wintergreen', barcode: '5061028595256', name: 'Off-Stamp Sweet Cube Wintergreen Blast', sku: 'GPT-PHOTO-OFFSTAMP-WINTERGREEN', unit: '1 five-piece pack'},
   {id: 'addyz-xr', barcode: '604634038325', name: 'ADDYZ XR', sku: 'GPT-PHOTO-ADDYZ-XR', unit: '1 retail box'},
@@ -1426,8 +1425,13 @@ function fromSnapshot(snap, collection, current) {
 function normalizeDelivery(d) {
   return Object.assign({}, d, {lines: Array.isArray(d.lines) ? d.lines : [], scans: Array.isArray(d.scans) ? d.scans : []});
 }
+// Products the owner retired (the ChatGPT AYTEST test item). Dropped even where an older copy saved them.
+const REMOVED_PRODUCTS = new Set(['aytest-a']);
+const REMOVED_BARCODES = new Set(['200001000102']);
+const keepProduct = p => !REMOVED_PRODUCTS.has(p.id) && !REMOVED_BARCODES.has(p.barcode);
 function normalizeRun(r) {
-  return Object.assign({}, r, {lines: Array.isArray(r.lines) ? r.lines : [], stops: r.stops && typeof r.stops === 'object' ? r.stops : {},
+  const lines = Array.isArray(r.lines) ? r.lines.filter(l => !REMOVED_PRODUCTS.has(l.productId)) : [];
+  return Object.assign({}, r, {lines, stops: r.stops && typeof r.stops === 'object' ? r.stops : {},
     pos: Array.isArray(r.pos) ? r.pos : []});
 }
 async function boot() {
@@ -1446,7 +1450,7 @@ async function boot() {
     state.mode = 'db';
     let gotProducts = false, gotDeliveries = false;
     const ready = () => { if (gotProducts && gotDeliveries && !state.ready) { state.ready = true; setTab(state.tab); } render(); };
-    db.collection('products').onSnapshot(snap => { state.products = fromSnapshot(snap, 'products', state.products); gotProducts = true; ready(); },
+    db.collection('products').onSnapshot(snap => { state.products = fromSnapshot(snap, 'products', state.products).filter(keepProduct); gotProducts = true; ready(); },
       () => { saveFailed = true; setSaveStatus(); });
     db.collection('deliveries').onSnapshot(snap => { state.deliveries = fromSnapshot(snap, 'deliveries', state.deliveries).map(normalizeDelivery); gotDeliveries = true; ready(); },
       () => { saveFailed = true; setSaveStatus(); });
@@ -1459,7 +1463,7 @@ async function boot() {
     }, () => { saveFailed = true; setSaveStatus(); });
   } else {
     const v = loadLocal();
-    state.products = v.products; state.deliveries = v.deliveries.map(normalizeDelivery);
+    state.products = v.products.filter(keepProduct); state.deliveries = v.deliveries.map(normalizeDelivery);
     state.runs = (v.runs || []).map(normalizeRun); state.settings = Object.assign({}, DEFAULT_SETTINGS, v.settings || {});
     state.ready = true; render();
   }
