@@ -84,6 +84,8 @@
           `This is ${product.name}, not ${wanted ? wanted.name : 'the selected item'}.`, {code: parsed.code, product});
       } else if (index === -1) {
         outcome = rejected('not_expected', 'Wrong item', `${product.name} is not on this delivery. Put it aside.`, {code: parsed.code, product});
+      } else if (lines[index].expected === 0) {
+        outcome = rejected('over', 'Not needed', `${product.name} is not needed here. It is already covered.`, {code: parsed.code, product});
       } else if (lines[index].counted >= lines[index].expected) {
         outcome = rejected('over', 'Too many', `All ${lines[index].expected} of ${product.name} are already counted. Put the extra aside.`, {code: parsed.code, product});
       } else {
@@ -164,5 +166,94 @@
     return {ok: true, product: {barcode, name, sku: String(input.sku || '').trim(), unit}};
   }
 
-  return {parse, checkDigitValid, matchKey, findProduct, lookup, applyScan, adjust, isValidated, undoLast, totals, validateNewProduct};
+  /* ---------- purchasing: one purchase list, ranked locations, one PO per location ---------- */
+  const LOCATIONS = [
+    {id: 'storage', name: 'Storage', code: 'STO'},
+    {id: 'ja', name: 'JA', code: 'JA'},
+    {id: 'midatlantic', name: 'Midatlantic', code: 'MA'},
+  ];
+  // Picks at a location count as bought once its PO is sent (pending) or approved, so the next
+  // location only asks for what is still missing. A denied PO stops counting until it is resent.
+  const COUNTS_AS_BOUGHT = ['pending', 'approved'];
+
+  function stopOf(run, locationId) {
+    const saved = (run.stops || {})[locationId] || {};
+    return {lines: Array.isArray(saved.lines) ? saved.lines : [], scans: Array.isArray(saved.scans) ? saved.scans : [],
+      status: saved.status || 'open', deniedReason: saved.deniedReason || ''};
+  }
+  function pickedAt(stop, productId) {
+    const line = stop.lines.find(l => l.productId === productId);
+    return line ? line.counted : 0;
+  }
+  function boughtElsewhere(run, productId, exceptLocationId) {
+    return LOCATIONS.filter(l => l.id !== exceptLocationId).reduce((sum, l) => {
+      const stop = stopOf(run, l.id);
+      return sum + (COUNTS_AS_BOUGHT.includes(stop.status) ? pickedAt(stop, productId) : 0);
+    }, 0);
+  }
+  function runTotals(run) {
+    const needed = run.lines.reduce((s, l) => s + l.needed, 0);
+    const bought = run.lines.reduce((s, l) => s + Math.min(l.needed, boughtElsewhere(run, l.productId, null)), 0);
+    return {needed, bought, remaining: needed - bought, complete: needed > 0 && bought >= needed};
+  }
+  // A location seen as a delivery-shaped object, so applyScan/adjust work on it unchanged:
+  // expected = what is still needed after the other locations (never below what was already picked here).
+  function stopView(run, locationId) {
+    const stop = stopOf(run, locationId);
+    const lines = run.lines.map(need => {
+      const own = stop.lines.find(l => l.productId === need.productId) || {counted: 0, validated: false};
+      const remaining = Math.max(0, need.needed - boughtElsewhere(run, need.productId, locationId));
+      return {productId: need.productId, expected: Math.max(remaining, own.counted), counted: own.counted, validated: Boolean(own.validated)};
+    });
+    return {id: locationId, lines, scans: stop.scans, status: stop.status, deniedReason: stop.deniedReason};
+  }
+  function saveStop(run, view) {
+    const stop = stopOf(run, view.id);
+    const lines = view.lines.filter(l => l.counted > 0 || l.validated)
+      .map(l => ({productId: l.productId, counted: l.counted, validated: Boolean(l.validated)}));
+    const stops = Object.assign({}, run.stops, {[view.id]: Object.assign({}, stop, {lines, scans: view.scans})});
+    return Object.assign({}, run, {stops});
+  }
+  function setStop(run, locationId, patch) {
+    const stops = Object.assign({}, run.stops, {[locationId]: Object.assign({}, stopOf(run, locationId), patch)});
+    return Object.assign({}, run, {stops});
+  }
+  // "Done from location": freezes what was picked into a purchase order waiting for a manager.
+  function finishStop(run, locationId, products, at, by) {
+    const location = LOCATIONS.find(l => l.id === locationId);
+    const view = stopView(run, locationId);
+    if (!location || view.status !== 'open') return {run, po: null, error: 'This location is already finished.'};
+    const picked = view.lines.filter(l => l.counted > 0);
+    if (!picked.length) return {run: setStop(run, locationId, {status: 'skipped', deniedReason: ''}), po: null};
+    const pos = Array.isArray(run.pos) ? run.pos : [];
+    const revision = pos.filter(p => p.locationId === locationId).length + 1;
+    const lines = picked.map(l => {
+      const p = products.find(x => x.id === l.productId) || {};
+      return {productId: l.productId, name: p.name || 'Removed product', sku: p.sku || '', barcode: p.barcode || '', unit: p.unit || '', qty: l.counted};
+    });
+    const po = {number: `PO-${run.ref || 'RUN'}-${location.code}-${revision}`, locationId, locationName: location.name,
+      rank: LOCATIONS.indexOf(location) + 1, revision, createdAt: at, by: by || '', lines,
+      totalUnits: lines.reduce((s, l) => s + l.qty, 0), status: 'pending', decidedAt: null, reason: ''};
+    const next = setStop(run, locationId, {status: 'pending', deniedReason: ''});
+    return {run: Object.assign({}, next, {pos: pos.concat([po])}), po};
+  }
+  // Manager decision on a pending PO. Deny sends the location back to shopping with the reason shown.
+  function decidePO(run, number, approve, reason, at) {
+    const pos = Array.isArray(run.pos) ? run.pos : [];
+    const po = pos.find(p => p.number === number);
+    if (!po || po.status !== 'pending') return {run, error: 'This purchase order was already decided.'};
+    const why = String(reason || '').trim();
+    if (!approve && !why) return {run, error: 'Enter a reason so the buyer knows what to fix.'};
+    const decided = Object.assign({}, po, {status: approve ? 'approved' : 'denied', decidedAt: at, reason: why});
+    let next = Object.assign({}, run, {pos: pos.map(p => p.number === number ? decided : p)});
+    next = setStop(next, po.locationId, approve ? {status: 'approved', deniedReason: ''} : {status: 'open', deniedReason: why});
+    return {run: next, po: decided};
+  }
+  function nextLocation(run) {
+    if (runTotals(run).complete) return null;
+    return LOCATIONS.find(l => stopOf(run, l.id).status === 'open') || null;
+  }
+
+  return {LOCATIONS, stopOf, boughtElsewhere, runTotals, stopView, saveStop, finishStop, decidePO, nextLocation,
+    parse, checkDigitValid, matchKey, findProduct, lookup, applyScan, adjust, isValidated, undoLast, totals, validateNewProduct};
 });
