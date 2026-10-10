@@ -300,7 +300,6 @@ body.scanning .top, body.scanning #scan-hint { display: none; }
       <details class="settings" id="settings">
         <summary>PO settings</summary>
         <form id="settings-form" autocomplete="off">
-          <label class="field">Manager email (separate several with commas)<input id="set-emails" maxlength="400" placeholder="manager@example.com"></label>
           <label class="field">Buyer name shown on POs<input id="set-name" maxlength="60"></label>
           <p class="error-text" id="set-error" hidden></p>
           <div class="row"><button class="btn" type="submit">Save settings</button><span class="notice" id="set-status"></span></div>
@@ -399,6 +398,9 @@ const EXAMPLE_DELIVERY = {id: 'example-delivery', name: 'Example delivery (pract
 const EXAMPLE_RUN = {id: 'example-run', ref: 'EX', name: 'Example pick list (practice)', createdAt: 0,
   lines: [{productId: 'forest-mint', needed: 4}, {productId: 'wintergreen', needed: 3}, {productId: 'addyz-xr', needed: 2}], stops: {}, pos: []};
 const DEFAULT_SETTINGS = {emails: '', name: ''};
+// POs are emailed to the owner through FormSubmit (formsubmit.co), chosen by the owner on 2026-10-10.
+const PO_EMAIL_TO = 'yasin.a7@gmail.com';
+const PO_EMAIL_ENDPOINT = 'https://formsubmit.co/ajax/' + PO_EMAIL_TO;
 const MANAGER_PIN = '0000';   // practice PIN set by the owner; real manager sign-in comes with the staff website
 const SHORT_REASONS = ['Out of stock (staff confirmed)', 'Only part in stock (staff confirmed)',
   'Could not find it (staff confirmed none)', 'Damaged or expired', 'Other'];
@@ -1198,9 +1200,8 @@ function renderPO(run, po) {
       ${short.map(s => `<tr><td>${esc(s.name)}<div class="bc">${esc(s.reason)}</div></td><td class="num">${s.short}</td></tr>`).join('')}</tbody></table></div>` : ''}
     <p class="po-foot">Unit costs come from the supplier’s paper invoice and are added at invoice review.</p>`;
   $('po-email-note').textContent = po.emailedAt
-    ? `PDF shared ${new Date(po.emailedAt).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}${state.settings.emails ? ' for ' + state.settings.emails : ''}.`
-    : state.settings.emails ? `Choose your email app, then send it to ${state.settings.emails}.`
-    : 'Add the manager’s email under PO settings on the locations screen.';
+    ? `Emailed to ${PO_EMAIL_TO} at ${new Date(po.emailedAt).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}. Tap again to resend.`
+    : `One tap sends this PO with its PDF to ${PO_EMAIL_TO}.`;
   $('po-manager').hidden = po.status !== 'pending';
   $('po-email').hidden = po.status !== 'pending';
   const next = Core.nextLocation(run);
@@ -1226,7 +1227,7 @@ function buildPdf(run, po) {
   if (po.revision > 1) { doc.setFontSize(10); doc.setTextColor(110); doc.text(`Revision ${po.revision}`, W - M, y, {align: 'right'}); }
   y += 12; doc.setDrawColor(20); doc.setLineWidth(1.5); doc.line(M, y, W - M, y); y += 20;
   const meta = [['Location', `${po.locationName} (stop ${po.rank} of ${Core.LOCATIONS.length})`], ['Pick list', run.name],
-    ['Prepared', when(po.createdAt)], ['Prepared by', po.by || '-'], ['Manager email', state.settings.emails || '-']];
+    ['Prepared', when(po.createdAt)], ['Prepared by', po.by || '-'], ['Sent to', PO_EMAIL_TO]];
   if (po.status !== 'pending') meta.push(['Decision', `${statusText.toLowerCase()} ${when(po.decidedAt)}${po.reason ? ': ' + po.reason : ''}`]);
   doc.setFontSize(10);
   for (const [k, v] of meta) {
@@ -1294,25 +1295,43 @@ function markShared(po) {
   const run = currentRun();
   replaceRun(Object.assign({}, run, {pos: run.pos.map(p => p.number === po.number ? Object.assign({}, p, {emailedAt: Date.now()}) : p)}));
 }
+// One tap: the PO and its itemized PDF go straight to the manager's inbox through FormSubmit.
+let sendingPO = false;
 $('po-email').addEventListener('click', async () => {
-  const run = currentRun(), po = currentPO(); if (!po) return;
-  if (!window.jspdf) { $('po-email-note').textContent = 'The PDF tool did not load. Check the connection and reload the page.'; return; }
-  const name = `${po.number}.pdf`;
-  const file = new File([buildPdf(run, po)], name, {type: 'application/pdf'});
-  const to = state.settings.emails;
-  if (navigator.canShare && navigator.canShare({files: [file]})) {
-    try {
-      await navigator.share({files: [file], title: `Purchase order ${po.number}`,
-        text: `Purchase order ${po.number} (${po.locationName}, ${units(po.totalUnits)}) for approval.${to ? ' Send to: ' + to : ''}`});
-      markShared(po); return;
-    } catch (e) { if (e && e.name === 'AbortError') return; }
+  const run = currentRun(), po = currentPO(); if (!po || sendingPO) return;
+  const note = $('po-email-note'), button = $('po-email');
+  if (!window.jspdf) { note.textContent = 'The PDF tool did not load. Check the connection and reload the page.'; return; }
+  const when = new Date(po.createdAt).toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'});
+  const short = po.short || [];
+  const fd = new FormData();
+  fd.append('_subject', `Approve ${po.number}: ${po.locationName}, ${units(po.totalUnits)}`);
+  fd.append('_captcha', 'false');
+  fd.append('_template', 'table');
+  fd.append('PO number', po.number + (po.revision > 1 ? ` (revision ${po.revision})` : ''));
+  fd.append('Location', `${po.locationName} (stop ${po.rank} of ${Core.LOCATIONS.length})`);
+  fd.append('Pick list', run.name);
+  fd.append('Prepared', `${when}${po.by ? ' by ' + po.by : ''}`);
+  fd.append('Items', po.lines.map((l, i) => `${i + 1}. ${l.qty} x ${l.name} (${l.unit}), SKU ${l.sku || '-'}, barcode ${l.barcode || '-'}`).join('\n'));
+  fd.append('Total units', String(po.totalUnits));
+  fd.append('Not bought here', short.length ? short.map(s => `${s.short} x ${s.name}: ${s.reason}`).join('\n') : 'Nothing');
+  fd.append('Next step', `Open AY Scan Station, Purchase, ${po.locationName}, and approve or deny with the manager PIN.`);
+  fd.append('attachment', new File([buildPdf(run, po)], `${po.number}.pdf`, {type: 'application/pdf'}));
+  sendingPO = true; button.disabled = true; button.textContent = 'Sending…';
+  note.textContent = `Sending ${po.number} to ${PO_EMAIL_TO}…`;
+  try {
+    const res = await fetch(PO_EMAIL_ENDPOINT, {method: 'POST', headers: {Accept: 'application/json'}, body: fd});
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok || String(out.success) !== 'true') throw new Error(out.message || `The email service answered ${res.status}.`);
+    markShared(po);
+    show('good', `${po.number} emailed`, `Sent to ${PO_EMAIL_TO} with the PDF attached.`, null, null, true);
+    tone([1320], 'sine', .1);
+  } catch (e) {
+    note.textContent = `Not sent: ${e && e.message ? e.message : 'check the connection and try again.'}`;
+    show('bad', 'Email not sent', 'Check the connection and tap Email PDF to manager again.', null, null, true);
+    tone([220], 'square', .12);
+  } finally {
+    sendingPO = false; button.disabled = false; button.textContent = 'Email PDF to manager';
   }
-  // No share sheet (e.g. a computer): save the PDF, then open an email to attach it to.
-  try { saveFile(file, name); } catch (_e) {}
-  const subject = `Approve ${po.number}: ${po.locationName}, ${units(po.totalUnits)}`;
-  const body = `The itemized PDF ${name} was saved to this device. Please attach it to this email.\n\n${poText(run, po)}`;
-  markShared(po);
-  window.location.href = `mailto:${to.split(',').map(s => s.trim()).filter(Boolean).join(',')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 });
 $('po-pdf').addEventListener('click', () => {
   const run = currentRun(), po = currentPO(); if (!po) return;
@@ -1370,15 +1389,12 @@ $('po-delete-form').addEventListener('submit', e => {
 /* settings */
 function renderSettings() {
   if (document.activeElement && document.activeElement.closest && document.activeElement.closest('#settings-form')) return;
-  $('set-emails').value = state.settings.emails || '';
   $('set-name').value = state.settings.name || '';
 }
 $('settings-form').addEventListener('submit', e => {
   e.preventDefault();
-  const err = $('set-error'); err.hidden = true;
-  const emails = $('set-emails').value.split(',').map(s => s.trim()).filter(Boolean);
-  if (emails.some(m => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m))) { err.textContent = 'Check the email address.'; err.hidden = false; return; }
-  state.settings = {emails: emails.join(', '), name: $('set-name').value.trim()};
+  $('set-error').hidden = true;
+  state.settings = Object.assign({}, state.settings, {name: $('set-name').value.trim()});
   persist('settings', 'purchasing', Object.assign({}, state.settings));
   $('set-status').textContent = 'Saved';
   setTimeout(() => { $('set-status').textContent = ''; }, 2000);
