@@ -261,11 +261,30 @@
     next = setStop(next, po.locationId, approve ? {status: 'approved', deniedReason: ''} : {status: 'open', deniedReason: why});
     return {run: next, po: decided};
   }
+  // Manager-only removal of a PO. The record is kept, marked deleted, for the audit trail; its location
+  // reopens (picks kept) so the buyer can fix it and send a new revision.
+  function deletePO(run, number, reason, at) {
+    const pos = Array.isArray(run.pos) ? run.pos : [];
+    const po = pos.find(p => p.number === number);
+    if (!po || po.status === 'deleted') return {run, error: 'This purchase order was already deleted.'};
+    const why = String(reason || '').trim();
+    if (!why) return {run, error: 'Enter a reason for deleting this purchase order.'};
+    const deleted = Object.assign({}, po, {status: 'deleted', previousStatus: po.status, deletedAt: at, deleteReason: why});
+    let next = Object.assign({}, run, {pos: pos.map(p => p.number === number ? deleted : p)});
+    const stop = stopOf(next, po.locationId);
+    if (COUNTS_AS_BOUGHT.includes(stop.status)) {
+      next = setStop(next, po.locationId, {status: 'open', deniedReason: `${number} was deleted by a manager: ${why}`});
+    }
+    return {run: next, po: deleted};
+  }
+  function activePOs(run, locationId) {
+    return (Array.isArray(run.pos) ? run.pos : []).filter(p => p.status !== 'deleted' && (!locationId || p.locationId === locationId));
+  }
   function nextLocation(run) {
     if (runTotals(run).complete) return null;
     return LOCATIONS.find(l => stopOf(run, l.id).status === 'open') || null;
   }
 
-  return {LOCATIONS, stopOf, boughtElsewhere, runTotals, stopView, saveStop, shortLines, finishStop, decidePO, nextLocation,
+  return {LOCATIONS, stopOf, boughtElsewhere, runTotals, stopView, saveStop, shortLines, finishStop, decidePO, deletePO, activePOs, nextLocation,
     parse, checkDigitValid, matchKey, findProduct, lookup, applyScan, adjust, isValidated, undoLast, totals, validateNewProduct};
 });

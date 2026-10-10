@@ -159,6 +159,13 @@ li:first-child > .item-btn { border-top: 0; }
 body.focusing #view-count, body.focusing #view-purchase, body.focusing #scan-hint, body.focusing nav.tabs { display: none; }
 nav.tabs { grid-template-columns: repeat(3, 1fr); }
 .short-panel { display: grid; gap: 10px; }
+.step-head { display: grid; gap: 4px; }
+.step-head h3 { font-size: 1.5rem; }
+.step-no { font: 600 .72rem var(--body); letter-spacing: .08em; text-transform: uppercase; color: var(--accent-ink); background: var(--accent);
+  justify-self: start; padding: 2px 8px; border-radius: 99px; }
+#locations .item-btn { padding-block: 14px; }
+#locations .name { font: 700 1.35rem/1.1 var(--display); text-transform: uppercase; }
+.list-box { display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; }
 .advice { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--idle-bg); font-weight: 600; }
 ul.short-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .short-item { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
@@ -308,20 +315,18 @@ body.scanning .top, body.scanning #scan-hint { display: none; }
   <!-- Purchase: one list, ranked locations, one PO per location -->
   <section id="view-purchase" class="wrap" style="padding:0" hidden>
     <div class="panel" id="run-panel">
-      <div class="row">
-        <select id="run-select" aria-label="Purchase list"></select>
-        <button class="btn ghost" type="button" id="new-run-btn">New list</button>
+      <div class="step-head">
+        <span class="step-no">Step 1</span>
+        <h3>Where are you buying now?</h3>
+        <p class="hint">Pick your location before you scan anything. Go in order: Storage, then JA, then Midatlantic.</p>
       </div>
-      <div class="progress" id="run-progress"></div>
-      <h3>Locations in order</h3>
       <ul class="lines" id="locations"></ul>
-      <div class="row">
-        <button class="btn danger" type="button" id="delete-run-btn" style="margin-left:auto">Delete list</button>
-      </div>
-      <div class="confirm" id="delete-run-confirm" hidden>
-        <span>Delete this purchase list and its POs?</span>
-        <button class="btn danger" type="button" id="delete-run-yes">Delete</button>
-        <button class="btn ghost" type="button" id="delete-run-no">Keep</button>
+      <div class="list-box">
+        <div class="row">
+          <select id="run-select" aria-label="Purchase list"></select>
+          <button class="btn ghost" type="button" id="new-run-btn">New list</button>
+        </div>
+        <div class="progress" id="run-progress"></div>
       </div>
       <details class="settings" id="settings">
         <summary>PO settings</summary>
@@ -375,6 +380,16 @@ body.scanning .top, body.scanning #scan-hint { display: none; }
         <p class="error-text" id="po-error" hidden></p>
       </div>
       <button class="btn big" type="button" id="po-next" hidden></button>
+      <details class="settings" id="po-delete">
+        <summary>Delete this PO (manager only)</summary>
+        <form id="po-delete-form" autocomplete="off">
+          <p class="notice">Only a manager can delete a PO. It stays on record as deleted, and the location reopens so it can be redone.</p>
+          <label class="field">Manager PIN<input id="del-pin" type="password" inputmode="numeric" maxlength="4"></label>
+          <label class="field">Reason for deleting<input id="del-reason" maxlength="300"></label>
+          <p class="error-text" id="del-error" hidden></p>
+          <div class="row"><button class="btn danger" type="submit">Delete PO</button></div>
+        </form>
+      </details>
     </div>
   </section>
 
@@ -1057,7 +1072,7 @@ $('new-delivery').addEventListener('submit', e => {
 const STOP_LABEL = {open: 'To visit', pending: 'Waiting for manager', approved: 'Approved', skipped: 'Nothing bought'};
 const units = n => `${n} unit${n === 1 ? '' : 's'}`;
 function latestPO(run, locationId) {
-  const pos = (run.pos || []).filter(p => p.locationId === locationId);
+  const pos = Core.activePOs(run, locationId);
   return pos.length ? pos[pos.length - 1] : null;
 }
 function lineButtons(lines, emptyText) {
@@ -1075,15 +1090,20 @@ function lineButtons(lines, emptyText) {
 }
 function renderPurchase() {
   const runs = state.runs.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  if (!currentRun()) { state.runId = runs.length ? runs[0].id : null; state.stopId = null; state.poNumber = null; }
+  // Only fall back to another list once lists have loaded, so a remembered location survives a slow start.
+  if (!currentRun() && runs.length) { state.runId = runs[0].id; state.stopId = null; state.poNumber = null; }
   const run = currentRun();
+  if (run && state.stopId && !state.poNumber) {
+    const st = Core.stopOf(run, state.stopId), last = latestPO(run, state.stopId);
+    if ((st.status === 'pending' || st.status === 'approved') && last) state.poNumber = last.number;
+  }
   $('run-select').innerHTML = runs.length ? runs.map(r => {
     const t = Core.runTotals(r);
     return `<option value="${esc(r.id)}"${r.id === state.runId ? ' selected' : ''}>${esc(r.name)} · ${t.bought}/${t.needed}${t.complete ? ' ✓' : ''}</option>`;
   }).join('') : '<option value="">No purchase lists yet</option>';
   $('run-select').disabled = !runs.length;
-  $('delete-run-btn').disabled = !run;
-  const po = run && state.poNumber ? (run.pos || []).find(p => p.number === state.poNumber) : null;
+  const po = run && state.poNumber ? Core.activePOs(run).find(p => p.number === state.poNumber) || null : null;
+  if (state.poNumber && !po) state.poNumber = null;   // e.g. deleted by a manager on another screen
   const inStop = Boolean(run && state.stopId && !po);
   $('run-panel').hidden = Boolean(po || inStop);
   $('stop-panel').hidden = !inStop;
@@ -1102,7 +1122,9 @@ function renderPurchase() {
     const stop = Core.stopOf(run, loc.id), last = latestPO(run, loc.id);
     const picked = stop.lines.reduce((s, l) => s + l.counted, 0);
     let chip = `<span class="chip">${STOP_LABEL[stop.status]}</span>`;
-    if (stop.status === 'open' && stop.deniedReason) chip = '<span class="chip bad">Denied, fix and resend</span>';
+    if (stop.status === 'open' && stop.deniedReason) {
+      chip = stop.deniedReason.includes('deleted by a manager') ? '<span class="chip bad">PO deleted, redo</span>' : '<span class="chip bad">Denied, fix and resend</span>';
+    }
     else if (stop.status === 'open' && picked) chip = '<span class="chip part">Buying</span>';
     else if (stop.status === 'open' && next && next.id === loc.id) chip = '<span class="chip wait">Next</span>';
     else if (stop.status === 'pending') chip = '<span class="chip wait">Waiting for manager</span>';
@@ -1123,7 +1145,8 @@ function renderStop(run) {
   $('stop-chip').className = 'chip' + (view.status === 'open' ? ' part' : view.status === 'approved' ? ' done' : '');
   $('stop-chip').textContent = view.status === 'open' ? 'Buying' : STOP_LABEL[view.status];
   $('stop-denied').hidden = !view.deniedReason;
-  $('stop-denied').textContent = view.deniedReason ? `Manager denied the last PO: ${view.deniedReason}` : '';
+  $('stop-denied').textContent = !view.deniedReason ? ''
+    : view.deniedReason.includes('deleted by a manager') ? view.deniedReason : `Manager denied the last PO: ${view.deniedReason}`;
   const lines = view.lines.filter(l => l.expected > 0 || l.counted > 0);
   const ordered = lines.filter(l => l.counted < l.expected).concat(lines.filter(l => l.counted >= l.expected));
   $('stop-lines').innerHTML = lineButtons(ordered, 'Nothing is needed here. Everything on the list is covered.');
@@ -1270,7 +1293,8 @@ function renderPO(run, po) {
   const next = Core.nextLocation(run);
   $('po-next').hidden = po.status === 'pending';
   $('po-next').textContent = po.status === 'denied' ? `Fix ${po.locationName} and resend`
-    : next ? `Go to ${next.name}` : 'List complete: back to locations';
+    : next ? `I’m at ${next.name} now` : 'List complete: back to locations';
+  $('po-delete').hidden = false;
 }
 
 /* Itemized PDF of a PO (US Letter), built on the phone with jsPDF. */
@@ -1347,7 +1371,7 @@ function buildPdf(run, po) {
   }
   return doc.output('blob');
 }
-function currentPO() { const run = currentRun(); return run ? (run.pos || []).find(p => p.number === state.poNumber) || null : null; }
+function currentPO() { const run = currentRun(); return run ? Core.activePOs(run).find(p => p.number === state.poNumber) || null : null; }
 function saveFile(blob, name) {
   const url = URL.createObjectURL(blob), a = document.createElement('a');
   a.href = url; a.download = name; document.body.append(a); a.click(); a.remove();
@@ -1414,13 +1438,20 @@ $('po-next').addEventListener('click', () => {
   render(); layout(); window.scrollTo({top: 0});
   if (state.stopId) show('idle', `At ${locationById(state.stopId).name}`, 'Tap an item, then scan it to confirm it is right.');
 });
-$('delete-run-btn').addEventListener('click', () => { $('delete-run-confirm').hidden = false; });
-$('delete-run-no').addEventListener('click', () => { $('delete-run-confirm').hidden = true; });
-$('delete-run-yes').addEventListener('click', () => {
-  const run = currentRun(); $('delete-run-confirm').hidden = true;
-  if (!run) return;
-  state.runs = state.runs.filter(r => r.id !== run.id); state.runId = null; state.stopId = null; state.poNumber = null;
-  persist('runs', run.id, null); render(); layout();
+// Purchase lists and locations cannot be deleted by anyone. Only a manager can delete a PO.
+$('po-delete-form').addEventListener('submit', e => {
+  e.preventDefault();
+  const run = currentRun(), po = currentPO(), err = $('del-error');
+  err.hidden = true;
+  if (!po) return;
+  if ($('del-pin').value.trim() !== MANAGER_PIN) { err.textContent = 'Wrong manager PIN. Only a manager can delete a PO.'; err.hidden = false; tone([220], 'square', .12); return; }
+  const out = Core.deletePO(run, po.number, $('del-reason').value, Date.now());
+  if (out.error) { err.textContent = out.error; err.hidden = false; return; }
+  $('del-pin').value = ''; $('del-reason').value = ''; $('po-delete').open = false;
+  replaceRun(out.run);
+  state.poNumber = null; state.stopId = null;
+  show('bad', `${po.number} deleted`, `${po.locationName} is open again. The deleted PO stays on record.`);
+  render(); layout(); window.scrollTo({top: 0});
 });
 
 /* settings */
@@ -1463,7 +1494,7 @@ function setTab(tab) {
   if (tab === 'count') show('idle', 'Ready to scan', currentDelivery() ? `Scan the items for “${currentDelivery().name}”.` : 'Create a delivery to start counting.');
   if (tab === 'purchase') {
     if (state.stopId && !state.poNumber) show('idle', `At ${locationById(state.stopId).name}`, 'Tap an item, then scan it to confirm it is right.');
-    else show('idle', 'Purchasing', 'Tap the location you are at. Go in order: Storage, then JA, then Midatlantic.');
+    else show('idle', 'Pick your location first', 'Tap the location you are at. Scanning starts after that.');
   }
   if (finePointer) $('scan-input').focus();
 }
@@ -1473,7 +1504,13 @@ $('sound-toggle').addEventListener('click', () => {
   $('sound-toggle').textContent = state.sound ? 'Sound on' : 'Sound off';
   $('sound-toggle').setAttribute('aria-pressed', String(state.sound));
 });
-function render() { renderCount(); renderPurchase(); renderFocus(); renderSettings(); layout(); setSaveStatus(); }
+let savedStop = null;
+function render() {
+  renderCount(); renderPurchase(); renderFocus(); renderSettings(); layout(); setSaveStatus();
+  // Remember the location the buyer is at, so reopening the app does not lose it.
+  const stopPref = state.runId && state.stopId ? `${state.runId}|${state.stopId}` : '';
+  if (state.ready && state.runs.length && stopPref !== savedStop) { savedStop = stopPref; pref('stop', stopPref); }
+}
 
 /* ---------- boot ---------- */
 function fromSnapshot(snap, collection, current) {
@@ -1496,6 +1533,8 @@ async function boot() {
   $('sound-toggle').textContent = state.sound ? 'Sound on' : 'Sound off';
   state.deliveryId = pref('delivery');
   state.runId = pref('run');
+  const [stopRun, stopLoc] = String(pref('stop') || '').split('|');
+  if (stopRun && locationById(stopLoc) && (!state.runId || stopRun === state.runId)) { state.runId = stopRun; state.stopId = stopLoc; }
   const startTab = TABS.includes(pref('tab')) ? pref('tab') : 'count';
   setTab(startTab);
   if (window.claude && typeof window.claude.use === 'function') {
