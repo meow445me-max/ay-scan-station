@@ -156,9 +156,10 @@ li:first-child > .item-btn { border-top: 0; }
 .step-count { text-align: center; font-variant-numeric: tabular-nums; }
 .step-count strong { display: block; font: 700 2.8rem/1 var(--display); }
 .step-count span { color: var(--muted); font-size: .9rem; }
-body.focusing #view-count, body.focusing #view-purchase, body.focusing #scan-hint, body.focusing nav.tabs { display: none; }
+body.focusing #view-purchase, body.focusing #scan-hint { display: none; }
 nav.tabs { grid-template-columns: repeat(3, 1fr); }
 .short-panel { display: grid; gap: 10px; }
+.item-btn.is-locked { opacity: .45; }
 .step-head { display: grid; gap: 4px; }
 .step-head h3 { font-size: 1.5rem; }
 .step-no { font: 600 .72rem var(--body); letter-spacing: .08em; text-transform: uppercase; color: var(--accent-ink); background: var(--accent);
@@ -231,12 +232,6 @@ body.scanning .top, body.scanning #scan-hint { display: none; }
     <button class="icon-btn" id="sound-toggle" type="button" aria-pressed="true">Sound on</button>
   </header>
 
-  <nav class="tabs" role="tablist">
-    <button type="button" role="tab" id="tab-count" aria-selected="true">Receive</button>
-    <button type="button" role="tab" id="tab-purchase" aria-selected="false">Purchase</button>
-    <button type="button" role="tab" id="tab-check" aria-selected="false">Check</button>
-  </nav>
-
   <section id="focus" class="panel focus" hidden aria-label="Selected item">
     <div class="focus-head">
       <button class="btn ghost" type="button" id="focus-back">← All items</button>
@@ -282,38 +277,12 @@ body.scanning .top, body.scanning #scan-hint { display: none; }
     <p class="hint" id="scan-hint">Tap Scan to use the live camera, use a USB scanner, or type the number and press Enter.</p>
     <div class="verdict" id="verdict" role="status" aria-live="polite">
       <div class="mark sym" id="verdict-mark">▮</div>
-      <div><h2 id="verdict-title">Ready to scan</h2><p id="verdict-detail">Pick a delivery below, then scan each item as you unpack it.</p><p class="code" id="verdict-code"></p></div>
-    </div>
-  </section>
-
-  <!-- Count delivery -->
-  <section id="view-count" class="wrap" style="padding:0">
-    <div class="panel">
-      <div class="row">
-        <select id="delivery-select" aria-label="Delivery"></select>
-        <button class="btn ghost" type="button" id="new-delivery-btn">New delivery</button>
-      </div>
-      <div class="progress" id="progress"></div>
-      <ul class="lines" id="lines"></ul>
-      <div class="row">
-        <button class="btn ghost" type="button" id="undo-btn">Undo last scan</button>
-        <button class="btn danger" type="button" id="delete-delivery-btn" style="margin-left:auto">Delete delivery</button>
-      </div>
-      <div class="confirm" id="delete-delivery-confirm" hidden>
-        <span>Delete this delivery and its counts?</span>
-        <button class="btn danger" type="button" id="delete-delivery-yes">Delete</button>
-        <button class="btn ghost" type="button" id="delete-delivery-no">Keep</button>
-      </div>
-    </div>
-
-    <div class="panel">
-      <h3>Scan history</h3>
-      <ul class="log" id="log"></ul>
+      <div><h2 id="verdict-title">Ready to scan</h2><p id="verdict-detail">Tap an item on the pick list, then scan it.</p><p class="code" id="verdict-code"></p></div>
     </div>
   </section>
 
   <!-- Purchase: one list, ranked locations, one PO per location -->
-  <section id="view-purchase" class="wrap" style="padding:0" hidden>
+  <section id="view-purchase" class="wrap" style="padding:0">
     <div class="panel" id="run-panel">
       <div class="step-head">
         <span class="step-no">Step 1</span>
@@ -323,7 +292,7 @@ body.scanning .top, body.scanning #scan-hint { display: none; }
       <ul class="lines" id="locations"></ul>
       <div class="list-box">
         <div class="row">
-          <select id="run-select" aria-label="Purchase list"></select>
+          <select id="run-select" aria-label="Pick list"></select>
           <button class="btn ghost" type="button" id="new-run-btn">New list</button>
         </div>
         <div class="progress" id="run-progress"></div>
@@ -428,7 +397,7 @@ const EXAMPLE_PRODUCTS = [
 const EXAMPLE_DELIVERY = {id: 'example-delivery', name: 'Example delivery (practice)', createdAt: 0,
   lines: [{productId: 'forest-mint', expected: 3, counted: 0}, {productId: 'wintergreen', expected: 2, counted: 0}, {productId: 'addyz-xr', expected: 1, counted: 0}],
   scans: []};
-const EXAMPLE_RUN = {id: 'example-run', ref: 'EX', name: 'Example purchase list (practice)', createdAt: 0,
+const EXAMPLE_RUN = {id: 'example-run', ref: 'EX', name: 'Example pick list (practice)', createdAt: 0,
   lines: [{productId: 'forest-mint', needed: 4}, {productId: 'wintergreen', needed: 3}, {productId: 'addyz-xr', needed: 2}], stops: {}, pos: []};
 const DEFAULT_SETTINGS = {emails: '', name: ''};
 const MANAGER_PIN = '0000';   // practice PIN set by the owner; real manager sign-in comes with the staff website
@@ -436,7 +405,7 @@ const SHORT_REASONS = ['Out of stock (staff confirmed)', 'Only part in stock (st
   'Could not find it (staff confirmed none)', 'Damaged or expired', 'Other'];
 
 const state = {products: [], deliveries: [], runs: [], settings: Object.assign({}, DEFAULT_SETTINGS), ready: false, mode: 'local',
-  tab: 'count', deliveryId: null, runId: null, stopId: null, poNumber: null, focusId: null, shortOpen: false, sound: true, last: null};
+  tab: 'purchase', deliveryId: null, runId: null, stopId: null, poNumber: null, focusId: null, shortOpen: false, sound: true, last: null};
 let db = null, assets = null;
 
 /* ---------- per-viewer conveniences ---------- */
@@ -513,9 +482,8 @@ const productById = id => state.products.find(p => p.id === id) || null;
 const currentDelivery = () => state.deliveries.find(d => d.id === state.deliveryId) || null;
 const currentRun = () => state.runs.find(r => r.id === state.runId) || null;
 const locationById = id => Core.LOCATIONS.find(l => l.id === id) || null;
-// What the scanner and the selected-item card work on: a delivery (Receive) or one location of a purchase list.
+// What the scanner and the selected-item card work on: the location the buyer is at, on the current pick list.
 function ctx() {
-  if (state.tab === 'count') { const d = currentDelivery(); return d ? {kind: 'delivery', c: d} : null; }
   if (state.tab === 'purchase') {
     const run = currentRun();
     return run && state.stopId ? {kind: 'stop', run, c: Core.stopView(run, state.stopId)} : null;
@@ -603,7 +571,6 @@ function announce(outcome) {
 /* ---------- scanning ---------- */
 function handleScan(raw) {
   if (!state.ready) return;
-  if (state.tab === 'check') { announce(Core.lookup(state.products, raw)); return; }
   const x = ctx();
   if (!x) {
     if (state.tab === 'purchase') show('bad', 'Pick a location first', 'Tap the location you are at, then scan what you buy there.');
@@ -873,71 +840,6 @@ function onLiveRead(code) {
   setTimeout(() => r.classList.remove('hit-good', 'hit-bad'), 600);
 }
 
-/* ---------- count view ---------- */
-function renderCount() {
-  const sel = $('delivery-select');
-  const ds = state.deliveries.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  if (!currentDelivery()) state.deliveryId = ds.length ? ds[0].id : null;
-  sel.innerHTML = ds.length ? ds.map(d => {
-    const t = Core.totals(d);
-    return `<option value="${esc(d.id)}"${d.id === state.deliveryId ? ' selected' : ''}>${esc(d.name)} · ${t.counted}/${t.expected}${t.complete ? ' ✓' : ''}</option>`;
-  }).join('') : '<option value="">No deliveries yet</option>';
-  sel.disabled = !ds.length;
-  const d = currentDelivery();
-  $('undo-btn').disabled = !d || !d.scans.some(s => s.accepted && !s.undone);
-  $('delete-delivery-btn').disabled = !d;
-  if (!d) {
-    $('progress').innerHTML = '';
-    $('lines').innerHTML = `<li><p class="empty">${state.products.length ? 'Tap New delivery and list what you expect to receive.' : 'No products are set up yet.'}</p></li>`;
-    $('log').innerHTML = '<li><p class="empty">Scans will appear here.</p></li>';
-    return;
-  }
-  const t = Core.totals(d);
-  const pct = t.expected ? Math.round(t.counted / t.expected * 100) : 0;
-  $('progress').innerHTML = `<div class="nums"><span><strong>${t.counted}</strong> of ${t.expected} counted</span><span>${t.complete ? '<span class="chip done">Complete</span>' : `${t.remaining} to go`}</span></div>
-    <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="${t.expected}" aria-valuenow="${t.counted}"><i style="width:${pct}%"></i></div>`;
-  // Items still to scan first, finished ones at the bottom.
-  const ordered = d.lines.filter(l => l.counted < l.expected).concat(d.lines.filter(l => l.counted >= l.expected));
-  $('lines').innerHTML = `<li><p class="list-hint">${t.complete ? 'Everything on this delivery is counted.' : 'Tap an item to scan it.'}</p></li>` + ordered.map(line => {
-    const p = productById(line.productId);
-    const done = line.counted >= line.expected;
-    const status = done ? '<span class="chip done">Done</span>' : line.counted ? '<span class="chip part">Counting</span>' : '<span class="chip">To scan</span>';
-    return `<li><button type="button" class="item-btn${done ? ' is-done' : ''}" data-id="${esc(line.productId)}"${p ? '' : ' disabled'}>
-      <div class="thumb">${thumb(p)}</div>
-      <div style="min-width:0"><div class="name">${esc(p ? p.name : 'Removed product')}</div>
-      <div class="meta"><span class="bc">${esc(groupCode(p ? p.barcode : ''))}</span>${p ? ' · ' + esc(p.unit) : ''}</div></div>
-      <div class="qty"><strong>${line.counted}</strong> / ${line.expected}<br>${status}</div><span class="chev" aria-hidden="true">›</span></button></li>`;
-  }).join('');
-  const LABELS = {counted: 'Counted', line_done: 'Item complete', all_done: 'Delivery complete', unknown: 'Unknown barcode', not_expected: 'Wrong item',
-    over: 'Too many', not_this_item: 'Wrong item', manual_add: 'Added with +', manual_remove: 'Removed with −', bad_check_digit: 'Misread', not_digits: 'Not a barcode', empty: 'Empty scan'};
-  const recent = d.scans.slice(-25).reverse();
-  $('log').innerHTML = recent.length ? recent.map(s => {
-    const p = productById(s.productId);
-    const when = new Date(s.at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
-    const what = `${LABELS[s.kind] || s.kind}: ${p ? p.name : groupCode(s.code)}`;
-    return `<li><time>${esc(when)}</time><span class="${s.accepted ? 'ok' : 'no'}">${s.accepted ? '✓' : '✕'}</span><span class="${s.undone ? 'undone' : ''}">${esc(what)}${s.undone ? ' (undone)' : ''}</span></li>`;
-  }).join('') : '<li><p class="empty">No scans yet for this delivery.</p></li>';
-}
-$('delivery-select').addEventListener('change', e => { state.focusId = null; state.deliveryId = e.target.value; pref('delivery', state.deliveryId); render(); });
-$('undo-btn').addEventListener('click', () => {
-  const d = currentDelivery(); if (!d) return;
-  const r = Core.undoLast(d);
-  if (!r.undone) return;
-  replaceDelivery(r.delivery);
-  const p = productById(r.undone.productId);
-  show('idle', 'Scan undone', `Removed one ${p ? p.name : 'item'} from the count.`, r.undone.code);
-});
-$('delete-delivery-btn').addEventListener('click', () => { $('delete-delivery-confirm').hidden = false; });
-$('delete-delivery-no').addEventListener('click', () => { $('delete-delivery-confirm').hidden = true; });
-$('delete-delivery-yes').addEventListener('click', () => {
-  const d = currentDelivery(); $('delete-delivery-confirm').hidden = true;
-  if (!d) return;
-  state.deliveries = state.deliveries.filter(x => x.id !== d.id);
-  state.deliveryId = null;
-  persist('deliveries', d.id, null);
-  render();
-});
-
 /* selected item: scan once to validate, then scan each unit or use + / − */
 const focusLine = () => { const x = ctx(); return x && state.focusId ? x.c.lines.find(l => l.productId === state.focusId) || null : null; };
 function openFocus(productId) {
@@ -964,7 +866,7 @@ function closeFocus() {
   setTab(state.tab);
 }
 function renderFocus() {
-  const line = state.tab === 'count' || state.tab === 'purchase' ? focusLine() : null;
+  const line = focusLine();
   const p = line ? productById(line.productId) : null;
   if (state.focusId && !p) state.focusId = null;   // item removed from the delivery elsewhere
   $('focus').hidden = !p;
@@ -986,7 +888,7 @@ function renderFocus() {
   $('focus-next').hidden = !done;
   const remaining = ctx().c.lines.some(l => l.counted < l.expected);
   $('focus-next').textContent = remaining ? 'Next item' : 'Back to the list';
-  $('focus-back').textContent = state.tab === 'purchase' ? `← ${locationById(state.stopId).name} items` : '← All items';
+  $('focus-back').textContent = `← ${locationById(state.stopId).name} items`;
 }
 function step(delta) {
   const x = ctx(); if (!x || !state.focusId) return;
@@ -1003,7 +905,6 @@ function step(delta) {
     tone([220], 'square', .12); buzz([120]);
   }
 }
-$('lines').addEventListener('click', e => { const b = e.target.closest('.item-btn'); if (b && !b.disabled) openFocus(b.dataset.id); });
 $('focus-back').addEventListener('click', closeFocus);
 $('focus-plus').addEventListener('click', () => step(1));
 $('focus-minus').addEventListener('click', () => step(-1));
@@ -1022,20 +923,19 @@ function lineRow(productId, qty) {
   div.querySelector('button').addEventListener('click', () => div.remove());
   return div;
 }
-// One form for both a new delivery (Receive) and a new purchase list (Purchase).
-let formMode = 'delivery';
+// Form for a new pick list.
+let formMode = 'run';
 function openNewForm(mode) {
   if (!state.products.length) { show('bad', 'No products yet', 'No products are set up yet.'); return; }
   formMode = mode;
   const day = new Date().toLocaleDateString([], {month: 'short', day: 'numeric'});
-  $('nd-title').textContent = mode === 'run' ? 'New purchase list' : 'New delivery';
+  $('nd-title').textContent = mode === 'run' ? 'New pick list' : 'New delivery';
   $('nd-submit').textContent = mode === 'run' ? 'Create list' : 'Create delivery';
-  $('nd-name').value = (mode === 'run' ? 'Purchase list ' : 'Delivery ') + day;
+  $('nd-name').value = (mode === 'run' ? 'Pick list ' : 'Delivery ') + day;
   $('nd-lines').innerHTML = ''; $('nd-lines').append(lineRow(state.products[0].id, 1));
   $('nd-error').hidden = true; $('new-delivery').hidden = false;
   $('new-delivery').scrollIntoView({block: 'start'}); $('nd-name').focus();
 }
-$('new-delivery-btn').addEventListener('click', () => openNewForm('delivery'));
 $('new-run-btn').addEventListener('click', () => openNewForm('run'));
 $('nd-add').addEventListener('click', () => $('nd-lines').append(lineRow(null, 1)));
 $('nd-cancel').addEventListener('click', () => { $('new-delivery').hidden = true; });
@@ -1052,7 +952,7 @@ $('new-delivery').addEventListener('submit', e => {
     const now = new Date();
     const ref = String(now.getMonth() + 1).padStart(2, '0') + String(now.getDate()).padStart(2, '0') +
       Math.random().toString(36).slice(2, 4).toUpperCase();
-    const run = {id: uid('r'), ref, name: $('nd-name').value.trim() || 'Purchase list', createdAt: Date.now(),
+    const run = {id: uid('r'), ref, name: $('nd-name').value.trim() || 'Pick list', createdAt: Date.now(),
       lines: [...merged].map(([productId, needed]) => ({productId, needed})), stops: {}, pos: []};
     state.runs = state.runs.concat([run]); state.runId = run.id; state.stopId = null; state.poNumber = null; pref('run', run.id);
     persist('runs', run.id, bodyOf(run));
@@ -1100,7 +1000,7 @@ function renderPurchase() {
   $('run-select').innerHTML = runs.length ? runs.map(r => {
     const t = Core.runTotals(r);
     return `<option value="${esc(r.id)}"${r.id === state.runId ? ' selected' : ''}>${esc(r.name)} · ${t.bought}/${t.needed}${t.complete ? ' ✓' : ''}</option>`;
-  }).join('') : '<option value="">No purchase lists yet</option>';
+  }).join('') : '<option value="">No pick lists yet</option>';
   $('run-select').disabled = !runs.length;
   const po = run && state.poNumber ? Core.activePOs(run).find(p => p.number === state.poNumber) || null : null;
   if (state.poNumber && !po) state.poNumber = null;   // e.g. deleted by a manager on another screen
@@ -1110,12 +1010,13 @@ function renderPurchase() {
   $('po-panel').hidden = !po;
   if (!run) {
     $('run-progress').innerHTML = '';
-    $('locations').innerHTML = `<li><p class="empty">${state.products.length ? 'Tap New list and enter what you need to buy.' : 'No products are set up yet.'}</p></li>`;
+    $('locations').innerHTML = `<li><p class="empty">${state.products.length ? 'Tap New list and enter what needs to be bought.' : 'No products are set up yet.'}</p></li>`;
     return;
   }
   const t = Core.runTotals(run);
   const pct = t.needed ? Math.round(t.bought / t.needed * 100) : 0;
-  $('run-progress').innerHTML = `<div class="nums"><span><strong>${t.bought}</strong> of ${t.needed} bought</span><span>${t.complete ? '<span class="chip done">List complete</span>' : `${t.remaining} still needed`}</span></div>
+  const allDone = Core.runFinished(run);
+  $('run-progress').innerHTML = `<div class="nums"><span><strong>${t.bought}</strong> of ${t.needed} bought</span><span>${allDone ? '<span class="chip done">All locations done</span>' : t.complete ? 'All bought · finish every location' : `${t.remaining} still needed`}</span></div>
     <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="${t.needed}" aria-valuenow="${t.bought}"><i style="width:${pct}%"></i></div>`;
   const next = Core.nextLocation(run);
   $('locations').innerHTML = Core.LOCATIONS.map((loc, i) => {
@@ -1129,8 +1030,13 @@ function renderPurchase() {
     else if (stop.status === 'open' && next && next.id === loc.id) chip = '<span class="chip wait">Next</span>';
     else if (stop.status === 'pending') chip = '<span class="chip wait">Waiting for manager</span>';
     else if (stop.status === 'approved') chip = '<span class="chip done">Approved</span>';
-    const meta = last ? `${esc(last.number)} · ${units(last.totalUnits)}` : picked ? `${units(picked)} picked so far` : 'No PO yet';
-    return `<li><button type="button" class="item-btn" data-loc="${esc(loc.id)}">
+    else if (stop.status === 'skipped') chip = '<span class="chip done">Checked, nothing bought</span>';
+    const locked = !Core.canOpenLocation(run, loc.id);
+    if (locked) chip = `<span class="chip">Locked</span>`;
+    const meta = locked ? `Finish ${esc(Core.LOCATIONS[i - 1].name)} first`
+      : last ? `${esc(last.number)} · ${units(last.totalUnits)}` : stop.status === 'skipped' ? 'No PO needed'
+      : picked ? `${units(picked)} picked so far` : 'No PO yet';
+    return `<li><button type="button" class="item-btn${locked ? ' is-locked' : ''}" data-loc="${esc(loc.id)}" aria-disabled="${locked}">
       <div class="thumb rank${next && next.id === loc.id ? ' next' : ''}">${i + 1}</div>
       <div style="min-width:0"><div class="name">${esc(loc.name)}</div><div class="meta">${meta}</div></div>
       <div class="qty">${chip}</div><span class="chev" aria-hidden="true">›</span></button></li>`;
@@ -1154,8 +1060,9 @@ function renderStop(run) {
   const short = Core.shortLines(view);
   if (view.status !== 'open' || !short.length) state.shortOpen = false;
   $('stop-done').hidden = view.status !== 'open' || state.shortOpen;
-  $('stop-hint').textContent = view.status !== 'open' || state.shortOpen ? '' : !short.length
-    ? `Everything needed here is picked (${units(picked)}). Tap Done to make this location’s purchase order.`
+  $('stop-hint').textContent = view.status !== 'open' || state.shortOpen ? '' : !lines.length
+    ? 'Nothing on the pick list is needed here. Tap Done from location to confirm you checked it.'
+    : !short.length ? `Everything needed here is picked (${units(picked)}). Tap Done to make this location’s purchase order.`
     : `${short.length} item${short.length === 1 ? ' is' : 's are'} still short. Scan them, or tap Done to give a reason for each.`;
   renderShort(short, loc);
 }
@@ -1209,7 +1116,9 @@ function finishLocation(reasons) {
   } else {
     state.stopId = null;
     const next = Core.nextLocation(out.run);
-    show('idle', `Nothing bought at ${loc.name}`, next ? `Everything still needed carries over to ${next.name}.` : 'No locations left to visit.');
+    const stillNeeded = !Core.runTotals(out.run).complete;
+    show('idle', `Nothing bought at ${loc.name}`, !next ? 'All locations are done.'
+      : stillNeeded ? `Everything still needed carries over to ${next.name}.` : `Next: check ${next.name} and tap Done.`);
   }
   render(); layout(); window.scrollTo({top: 0});
 }
@@ -1225,6 +1134,11 @@ $('run-select').addEventListener('change', e => { closeFocusQuiet(); state.short
 $('locations').addEventListener('click', e => {
   const b = e.target.closest('.item-btn[data-loc]'); if (!b) return;
   const run = currentRun(), stop = Core.stopOf(run, b.dataset.loc), last = latestPO(run, b.dataset.loc);
+  if (!Core.canOpenLocation(run, b.dataset.loc)) {
+    const next = Core.nextLocation(run);
+    show('bad', `${locationById(b.dataset.loc).name} is locked`, `Go in order. Finish ${next ? next.name : 'the earlier location'} first, even if nothing is needed there.`);
+    tone([220], 'square', .12); return;
+  }
   state.stopId = b.dataset.loc; state.shortOpen = false;
   state.poNumber = (stop.status === 'pending' || stop.status === 'approved') && last ? last.number : null;
   render(); layout(); window.scrollTo({top: 0});
@@ -1261,7 +1175,7 @@ function poText(run, po) {
   const when = new Date(po.createdAt).toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'});
   const short = po.short || [];
   return [`Purchase order ${po.number}`, `Location: ${po.locationName} (stop ${po.rank} of ${Core.LOCATIONS.length})`,
-    `Purchase list: ${run.name}`, `Prepared: ${when}${po.by ? ' by ' + po.by : ''}`, '',
+    `Pick list: ${run.name}`, `Prepared: ${when}${po.by ? ' by ' + po.by : ''}`, '',
     ...po.lines.map(l => `- ${l.qty} x ${l.name} (${l.unit})${l.sku ? ', SKU ' + l.sku : ''}${l.barcode ? ', barcode ' + l.barcode : ''}`),
     '', `Total units: ${po.totalUnits}`,
     ...(short.length ? ['', 'Not bought here:', ...short.map(s => `- ${s.short} x ${s.name}: ${s.reason}`)] : []),
@@ -1276,7 +1190,7 @@ function renderPO(run, po) {
   $('po-doc').innerHTML = `<header><div><div class="po-kind">Purchase order${po.revision > 1 ? ` · revision ${po.revision}` : ''}</div><div class="po-no">${esc(po.number)}</div></div>
       <div class="po-kind">Practice PO</div></header>
     <dl><dt>Location</dt><dd>${esc(po.locationName)} (stop ${po.rank} of ${Core.LOCATIONS.length})</dd>
-      <dt>Purchase list</dt><dd>${esc(run.name)}</dd><dt>Prepared</dt><dd>${esc(when)}${po.by ? ' by ' + esc(po.by) : ''}</dd>
+      <dt>Pick list</dt><dd>${esc(run.name)}</dd><dt>Prepared</dt><dd>${esc(when)}${po.by ? ' by ' + esc(po.by) : ''}</dd>
       ${po.status !== 'pending' ? `<dt>Decision</dt><dd>${esc(status[1])} ${esc(new Date(po.decidedAt).toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'}))}${po.reason ? ': ' + esc(po.reason) : ''}</dd>` : ''}</dl>
     <div class="po-table-wrap"><table><thead><tr><th>#</th><th>Item</th><th class="num">Qty</th></tr></thead><tbody>
       ${po.lines.map((l, i) => `<tr><td>${i + 1}</td><td>${esc(l.name)}<div class="bc">${esc(groupCode(l.barcode))} · ${esc(l.unit)}${l.sku ? ' · ' + esc(l.sku) : ''}</div></td><td class="num">${l.qty}</td></tr>`).join('')}
@@ -1293,7 +1207,7 @@ function renderPO(run, po) {
   const next = Core.nextLocation(run);
   $('po-next').hidden = po.status === 'pending';
   $('po-next').textContent = po.status === 'denied' ? `Fix ${po.locationName} and resend`
-    : next ? `I’m at ${next.name} now` : 'List complete: back to locations';
+    : next ? `I’m at ${next.name} now` : 'All locations done: back to the list';
   $('po-delete').hidden = false;
 }
 
@@ -1312,7 +1226,7 @@ function buildPdf(run, po) {
   y += 28; doc.setFontSize(24); doc.setTextColor(20); doc.text(po.number, M, y);
   if (po.revision > 1) { doc.setFontSize(10); doc.setTextColor(110); doc.text(`Revision ${po.revision}`, W - M, y, {align: 'right'}); }
   y += 12; doc.setDrawColor(20); doc.setLineWidth(1.5); doc.line(M, y, W - M, y); y += 20;
-  const meta = [['Location', `${po.locationName} (stop ${po.rank} of ${Core.LOCATIONS.length})`], ['Purchase list', run.name],
+  const meta = [['Location', `${po.locationName} (stop ${po.rank} of ${Core.LOCATIONS.length})`], ['Pick list', run.name],
     ['Prepared', when(po.createdAt)], ['Prepared by', po.by || '-'], ['Manager email', state.settings.emails || '-']];
   if (po.status !== 'pending') meta.push(['Decision', `${statusText.toLowerCase()} ${when(po.decidedAt)}${po.reason ? ': ' + po.reason : ''}`]);
   doc.setFontSize(10);
@@ -1420,7 +1334,7 @@ function decide(approve) {
   replaceRun(out.run);
   const next = Core.nextLocation(out.run);
   if (approve) {
-    show('good', `${po.number} approved`, next ? `Next stop: ${next.name}.` : 'The purchase list is complete.');
+    show('good', `${po.number} approved`, next ? `Next stop: ${next.name}.` : (Core.runFinished(out.run) ? 'All locations are done.' : 'Finish the remaining locations.'));
     tone([880, 1175, 1568], 'sine', .14);
   } else {
     show('bad', `${po.number} denied`, `${po.locationName} is open again. Fix the counts and tap Done to resend.`);
@@ -1438,7 +1352,7 @@ $('po-next').addEventListener('click', () => {
   render(); layout(); window.scrollTo({top: 0});
   if (state.stopId) show('idle', `At ${locationById(state.stopId).name}`, 'Tap an item, then scan it to confirm it is right.');
 });
-// Purchase lists and locations cannot be deleted by anyone. Only a manager can delete a PO.
+// Pick lists and locations cannot be deleted by anyone. Only a manager can delete a PO.
 $('po-delete-form').addEventListener('submit', e => {
   e.preventDefault();
   const run = currentRun(), po = currentPO(), err = $('del-error');
@@ -1473,32 +1387,20 @@ $('settings-form').addEventListener('submit', e => {
 });
 
 /* ---------- tabs and render ---------- */
-const TABS = ['count', 'purchase', 'check'];
-// Shows the scanner only where scanning means something, and stops the camera everywhere else.
+// The app is purchasing only. The scanner shows only while the buyer is at an open location.
 function layout() {
-  const tab = state.tab, run = currentRun();
-  const atOpenStop = tab === 'purchase' && run && state.stopId && !state.poNumber && Core.stopOf(run, state.stopId).status === 'open';
-  const scanning = tab === 'count' || tab === 'check' || Boolean(atOpenStop);
-  $('scan-area').hidden = !scanning;
-  $('view-count').hidden = tab !== 'count';
-  $('view-purchase').hidden = tab !== 'purchase';
-  if (!scanning && live.stream) stopLive();
+  const run = currentRun();
+  const atOpenStop = run && state.stopId && !state.poNumber && Core.stopOf(run, state.stopId).status === 'open';
+  $('scan-area').hidden = !atOpenStop;
+  if (!atOpenStop && live.stream) stopLive();
 }
 function setTab(tab) {
-  if (state.focusId && tab !== state.tab) { state.focusId = null; if (live.stream) stopLive(); }
-  if (tab !== state.tab) $('new-delivery').hidden = true;
-  state.tab = tab; pref('tab', tab);
-  for (const t of TABS) $('tab-' + t).setAttribute('aria-selected', String(t === tab));
+  state.tab = 'purchase';
   layout(); renderFocus();
-  if (tab === 'check') show('idle', 'Check an item', 'Scan any product to see what it is. Nothing is counted.');
-  if (tab === 'count') show('idle', 'Ready to scan', currentDelivery() ? `Scan the items for “${currentDelivery().name}”.` : 'Create a delivery to start counting.');
-  if (tab === 'purchase') {
-    if (state.stopId && !state.poNumber) show('idle', `At ${locationById(state.stopId).name}`, 'Tap an item, then scan it to confirm it is right.');
-    else show('idle', 'Pick your location first', 'Tap the location you are at. Scanning starts after that.');
-  }
+  if (state.stopId && !state.poNumber) show('idle', `At ${locationById(state.stopId).name}`, 'Tap an item, then scan it to confirm it is right.');
+  else show('idle', 'Pick your location first', 'Tap the location you are at. Scanning starts after that.');
   if (finePointer) $('scan-input').focus();
 }
-for (const t of TABS) $('tab-' + t).addEventListener('click', () => setTab(t));
 $('sound-toggle').addEventListener('click', () => {
   state.sound = !state.sound; pref('sound', state.sound ? '1' : '0');
   $('sound-toggle').textContent = state.sound ? 'Sound on' : 'Sound off';
@@ -1506,7 +1408,7 @@ $('sound-toggle').addEventListener('click', () => {
 });
 let savedStop = null;
 function render() {
-  renderCount(); renderPurchase(); renderFocus(); renderSettings(); layout(); setSaveStatus();
+  renderPurchase(); renderFocus(); renderSettings(); layout(); setSaveStatus();
   // Remember the location the buyer is at, so reopening the app does not lose it.
   const stopPref = state.runId && state.stopId ? `${state.runId}|${state.stopId}` : '';
   if (state.ready && state.runs.length && stopPref !== savedStop) { savedStop = stopPref; pref('stop', stopPref); }
@@ -1535,8 +1437,7 @@ async function boot() {
   state.runId = pref('run');
   const [stopRun, stopLoc] = String(pref('stop') || '').split('|');
   if (stopRun && locationById(stopLoc) && (!state.runId || stopRun === state.runId)) { state.runId = stopRun; state.stopId = stopLoc; }
-  const startTab = TABS.includes(pref('tab')) ? pref('tab') : 'count';
-  setTab(startTab);
+  setTab('purchase');
   if (window.claude && typeof window.claude.use === 'function') {
     try { db = await window.claude.use('db'); } catch (_e) { db = null; }
     try { assets = await window.claude.use('assets'); } catch (_e) { assets = null; }

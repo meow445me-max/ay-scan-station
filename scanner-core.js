@@ -77,13 +77,13 @@
       const product = findProduct(products, parsed.code);
       const index = product ? lines.findIndex(line => line.productId === product.id) : -1;
       if (!product) {
-        outcome = rejected('unknown', 'Unknown barcode', `${parsed.code} is not in the product list. Put this item aside.`, {code: parsed.code});
+        outcome = rejected('unknown', 'Not on the pick list', `${parsed.code} is not on the pick list. Do not buy it.`, {code: parsed.code});
       } else if (focusId && product.id !== focusId) {
         const wanted = products.find(p => p.id === focusId);
         outcome = rejected('not_this_item', 'Wrong item',
           `This is ${product.name}, not ${wanted ? wanted.name : 'the selected item'}.`, {code: parsed.code, product});
       } else if (index === -1) {
-        outcome = rejected('not_expected', 'Wrong item', `${product.name} is not on this delivery. Put it aside.`, {code: parsed.code, product});
+        outcome = rejected('not_expected', 'Not on the pick list', `${product.name} is not on the pick list. Do not buy it.`, {code: parsed.code, product});
       } else if (lines[index].expected === 0) {
         outcome = rejected('over', 'Not needed', `${product.name} is not needed here. It is already covered.`, {code: parsed.code, product});
       } else if (lines[index].counted >= lines[index].expected) {
@@ -280,11 +280,22 @@
   function activePOs(run, locationId) {
     return (Array.isArray(run.pos) ? run.pos : []).filter(p => p.status !== 'deleted' && (!locationId || p.locationId === locationId));
   }
+  // Every location must be visited in order, even when nothing is left to buy there.
   function nextLocation(run) {
-    if (runTotals(run).complete) return null;
     return LOCATIONS.find(l => stopOf(run, l.id).status === 'open') || null;
   }
+  // A location can be opened for picking only when every earlier location is finished (PO sent or nothing bought).
+  // Finished locations can always be opened to see their PO.
+  function canOpenLocation(run, locationId) {
+    const index = LOCATIONS.findIndex(l => l.id === locationId);
+    if (index === -1) return false;
+    if (stopOf(run, locationId).status !== 'open') return true;
+    return LOCATIONS.slice(0, index).every(l => stopOf(run, l.id).status !== 'open');
+  }
+  function runFinished(run) {
+    return LOCATIONS.every(l => stopOf(run, l.id).status !== 'open');
+  }
 
-  return {LOCATIONS, stopOf, boughtElsewhere, runTotals, stopView, saveStop, shortLines, finishStop, decidePO, deletePO, activePOs, nextLocation,
+  return {LOCATIONS, stopOf, boughtElsewhere, runTotals, stopView, saveStop, shortLines, finishStop, decidePO, deletePO, activePOs, nextLocation, canOpenLocation, runFinished,
     parse, checkDigitValid, matchKey, findProduct, lookup, applyScan, adjust, isValidated, undoLast, totals, validateNewProduct};
 });
