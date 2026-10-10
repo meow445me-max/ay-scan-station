@@ -409,11 +409,18 @@ const state = {products: [], deliveries: [], runs: [], settings: Object.assign({
   tab: 'purchase', deliveryId: null, runId: null, stopId: null, poNumber: null, focusId: null, shortOpen: false, sound: true, last: null};
 let db = null, assets = null;
 
+// Storage names carry a reset number: raising it gives every phone a clean start (owner reset 2026-10-10).
+const DATA_KEY = 'ay-scan-local-v2', PREF_PREFIX = 'ay-scan-pref-v2:';
+try {
+  for (const key of Object.keys(localStorage)) {
+    if (key === 'ay-scan-local' || key.startsWith('ay-scan-pref:')) localStorage.removeItem(key);
+  }
+} catch (_e) {}
 /* ---------- per-viewer conveniences ---------- */
 function pref(key, value) {
   try {
-    if (value === undefined) return localStorage.getItem('ay-scan-pref:' + key);
-    localStorage.setItem('ay-scan-pref:' + key, value);
+    if (value === undefined) return localStorage.getItem(PREF_PREFIX + key);
+    localStorage.setItem(PREF_PREFIX + key, value);
   } catch (_e) { return null; }
 }
 
@@ -457,14 +464,14 @@ async function drain(path, q) {
 function pendingPaths() { return new Set([...queues.entries()].filter(([, q]) => q.busy || q.next !== undefined).map(([p]) => p)); }
 function saveLocal() {
   try {
-    localStorage.setItem('ay-scan-local', JSON.stringify({products: state.products, deliveries: state.deliveries,
+    localStorage.setItem(DATA_KEY, JSON.stringify({products: state.products, deliveries: state.deliveries,
       runs: state.runs, settings: state.settings}));
   } catch (_e) {}
   setSaveStatus();
 }
 function loadLocal() {
   try {
-    const raw = localStorage.getItem('ay-scan-local');
+    const raw = localStorage.getItem(DATA_KEY);
     if (raw) {
       const v = JSON.parse(raw);
       if (Array.isArray(v.products) && Array.isArray(v.deliveries)) {
