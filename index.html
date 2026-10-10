@@ -133,6 +133,31 @@ html, body { transition: background-color .3s; }
 #flash .flash-title { font: 700 2.4rem/1.05 var(--display); text-transform: uppercase; max-width: 18ch; text-wrap: balance; overflow-wrap: anywhere; }
 #flash .flash-detail { font-size: 1.1rem; max-width: 28ch; }
 
+/* Item list and selected item */
+.item-btn { all: unset; box-sizing: border-box; cursor: pointer; display: grid; grid-template-columns: 52px 1fr auto 14px; gap: 12px; align-items: center;
+  width: 100%; padding: 10px 0; border-top: 1px solid var(--line); }
+li:first-child > .item-btn { border-top: 0; }
+.item-btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.item-btn .chev { color: var(--muted); font-size: 1.3rem; }
+.item-btn.is-done { opacity: .62; }
+.list-hint { margin: 0; font-size: .85rem; color: var(--muted); }
+.focus { gap: 10px; }
+.focus-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.focus-head .btn { padding: 8px 12px; }
+.focus-item { display: grid; grid-template-columns: 52px 1fr; gap: 12px; align-items: center; }
+.focus-item .name { font: 700 1.35rem/1.1 var(--display); text-transform: uppercase; }
+.focus-item .meta { font-size: .8rem; color: var(--muted); }
+.focus-item .meta .bc { font-family: var(--mono); }
+.stepper { display: grid; grid-template-columns: 72px 1fr 72px; gap: 10px; align-items: center; }
+.step { height: 64px; border-radius: 14px; border: 2px solid var(--line); background: var(--surface); font: 700 2.2rem/1 var(--display); color: var(--ink); }
+.step:not(:disabled):active { transform: scale(.96); }
+#focus-plus:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.step:disabled { opacity: .35; cursor: default; }
+.step-count { text-align: center; font-variant-numeric: tabular-nums; }
+.step-count strong { display: block; font: 700 2.8rem/1 var(--display); }
+.step-count span { color: var(--muted); font-size: .9rem; }
+body.focusing #view-count, body.focusing #scan-hint, body.focusing nav.tabs { display: none; }
+
 /* Live scanner */
 .live { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .live-view { position: relative; height: min(34vh, 22rem); border-radius: 14px; overflow: hidden; background: #000; touch-action: none; }
@@ -166,6 +191,24 @@ body.scanning .top, body.scanning #scan-hint { display: none; }
     <button type="button" role="tab" id="tab-check" aria-selected="false">Check item</button>
     <button type="button" role="tab" id="tab-products" aria-selected="false">Products</button>
   </nav>
+
+  <section id="focus" class="panel focus" hidden aria-label="Selected item">
+    <div class="focus-head">
+      <button class="btn ghost" type="button" id="focus-back">← All items</button>
+      <span class="chip" id="focus-chip"></span>
+    </div>
+    <div class="focus-item">
+      <div class="thumb" id="focus-thumb"></div>
+      <div style="min-width:0"><div class="name" id="focus-name"></div><div class="meta" id="focus-meta"></div></div>
+    </div>
+    <div class="stepper">
+      <button class="step" type="button" id="focus-minus" aria-label="Remove one">−</button>
+      <div class="step-count"><strong id="focus-count">0</strong><span id="focus-of"></span></div>
+      <button class="step" type="button" id="focus-plus" aria-label="Add one">+</button>
+    </div>
+    <p class="hint" id="focus-hint"></p>
+    <button class="btn" type="button" id="focus-next" hidden>Next item</button>
+  </section>
 
   <section id="live" class="live" hidden aria-label="Live camera scanner">
     <div class="live-view" id="live-view">
@@ -377,7 +420,7 @@ function tone(freqs, type, dur) {
   } catch (_e) {}
 }
 function buzz(pattern) { try { navigator.vibrate && navigator.vibrate(pattern); } catch (_e) {} }
-function show(kind, title, detail, code, product) {
+function show(kind, title, detail, code, product, quiet) {
   const v = $('verdict');
   v.className = 'verdict' + (kind === 'good' ? ' good' : kind === 'bad' ? ' bad' : '');
   void v.offsetWidth; if (kind !== 'idle') v.classList.add('flash');
@@ -387,16 +430,17 @@ function show(kind, title, detail, code, product) {
   $('verdict-title').textContent = title;
   $('verdict-detail').textContent = detail || '';
   $('verdict-code').textContent = code ? groupCode(code) : '';
-  screenState(kind, title, detail);
+  screenState(kind, title, detail, quiet);
 }
 let flashTimer = null;
-function screenState(kind, title, detail) {
+// quiet: tint the page but skip the full-screen flash (used for + and − taps).
+function screenState(kind, title, detail, quiet) {
   const root = document.documentElement, f = $('flash');
   root.classList.toggle('state-good', kind === 'good');
   root.classList.toggle('state-bad', kind === 'bad');
   clearTimeout(flashTimer);
   f.className = '';
-  if (kind !== 'good' && kind !== 'bad') return;
+  if (quiet || (kind !== 'good' && kind !== 'bad')) return;
   f.querySelector('.flash-icon').textContent = kind === 'good' ? '✓' : '✕';
   f.querySelector('.flash-title').textContent = title;
   f.querySelector('.flash-detail').textContent = detail || '';
@@ -422,7 +466,7 @@ function handleScan(raw) {
   if (state.tab === 'check') { announce(Core.lookup(state.products, raw)); return; }
   const d = currentDelivery();
   if (!d) { show('bad', 'No delivery selected', 'Create a delivery first, then scan its items.'); return; }
-  const result = Core.applyScan(d, state.products, raw, Date.now());
+  const result = Core.applyScan(d, state.products, raw, Date.now(), state.focusId);
   const next = result.delivery;
   if (next.scans.length > MAX_LOG) next.scans = next.scans.slice(-MAX_LOG);
   replaceDelivery(next);
@@ -716,16 +760,20 @@ function renderCount() {
   const pct = t.expected ? Math.round(t.counted / t.expected * 100) : 0;
   $('progress').innerHTML = `<div class="nums"><span><strong>${t.counted}</strong> of ${t.expected} counted</span><span>${t.complete ? '<span class="chip done">Complete</span>' : `${t.remaining} to go`}</span></div>
     <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="${t.expected}" aria-valuenow="${t.counted}"><i style="width:${pct}%"></i></div>`;
-  $('lines').innerHTML = d.lines.map(line => {
+  // Items still to scan first, finished ones at the bottom.
+  const ordered = d.lines.filter(l => l.counted < l.expected).concat(d.lines.filter(l => l.counted >= l.expected));
+  $('lines').innerHTML = `<li><p class="list-hint">${t.complete ? 'Everything on this delivery is counted.' : 'Tap an item to scan it.'}</p></li>` + ordered.map(line => {
     const p = productById(line.productId);
-    const status = line.counted === line.expected ? '<span class="chip done">Done</span>' : line.counted ? '<span class="chip part">Counting</span>' : '<span class="chip">Waiting</span>';
-    return `<li class="item"><div class="thumb">${thumb(p)}</div>
+    const done = line.counted >= line.expected;
+    const status = done ? '<span class="chip done">Done</span>' : line.counted ? '<span class="chip part">Counting</span>' : '<span class="chip">To scan</span>';
+    return `<li><button type="button" class="item-btn${done ? ' is-done' : ''}" data-id="${esc(line.productId)}"${p ? '' : ' disabled'}>
+      <div class="thumb">${thumb(p)}</div>
       <div style="min-width:0"><div class="name">${esc(p ? p.name : 'Removed product')}</div>
       <div class="meta"><span class="bc">${esc(groupCode(p ? p.barcode : ''))}</span>${p ? ' · ' + esc(p.unit) : ''}</div></div>
-      <div class="qty"><strong>${line.counted}</strong> / ${line.expected}<br>${status}</div></li>`;
+      <div class="qty"><strong>${line.counted}</strong> / ${line.expected}<br>${status}</div><span class="chev" aria-hidden="true">›</span></button></li>`;
   }).join('');
   const LABELS = {counted: 'Counted', line_done: 'Item complete', all_done: 'Delivery complete', unknown: 'Unknown barcode', not_expected: 'Wrong item',
-    over: 'Too many', bad_check_digit: 'Misread', not_digits: 'Not a barcode', empty: 'Empty scan'};
+    over: 'Too many', not_this_item: 'Wrong item', manual_add: 'Added with +', manual_remove: 'Removed with −', bad_check_digit: 'Misread', not_digits: 'Not a barcode', empty: 'Empty scan'};
   const recent = d.scans.slice(-25).reverse();
   $('log').innerHTML = recent.length ? recent.map(s => {
     const p = productById(s.productId);
@@ -734,7 +782,7 @@ function renderCount() {
     return `<li><time>${esc(when)}</time><span class="${s.accepted ? 'ok' : 'no'}">${s.accepted ? '✓' : '✕'}</span><span class="${s.undone ? 'undone' : ''}">${esc(what)}${s.undone ? ' (undone)' : ''}</span></li>`;
   }).join('') : '<li><p class="empty">No scans yet for this delivery.</p></li>';
 }
-$('delivery-select').addEventListener('change', e => { state.deliveryId = e.target.value; pref('delivery', state.deliveryId); render(); });
+$('delivery-select').addEventListener('change', e => { state.focusId = null; state.deliveryId = e.target.value; pref('delivery', state.deliveryId); render(); });
 $('undo-btn').addEventListener('click', () => {
   const d = currentDelivery(); if (!d) return;
   const r = Core.undoLast(d);
@@ -752,6 +800,76 @@ $('delete-delivery-yes').addEventListener('click', () => {
   state.deliveryId = null;
   persist('deliveries', d.id, null);
   render();
+});
+
+/* selected item: scan once to validate, then scan each unit or use + / − */
+const focusLine = () => { const d = currentDelivery(); return d && state.focusId ? d.lines.find(l => l.productId === state.focusId) || null : null; };
+function openFocus(productId) {
+  const p = productById(productId);
+  if (!p || !currentDelivery()) return;
+  state.focusId = productId;
+  render();
+  const line = focusLine();
+  if (line.counted >= line.expected) show('idle', p.name, `All ${line.expected} already counted. Use − to correct the count.`, p.barcode, p);
+  else if (Core.isValidated(line)) show('idle', p.name, 'Scan each unit, or use + and − to set the count.', p.barcode, p);
+  else show('idle', `Scan ${p.name}`, 'Scan one to confirm it is the right product. Then scan each unit or use + and −.', p.barcode, p);
+  window.scrollTo({top: 0});
+  if (!liveUnavailable && !live.stream) openCamera('scan');   // runs inside the tap, as camera access requires
+  else if (finePointer) $('scan-input').focus();
+}
+function closeFocus() {
+  if (!state.focusId) return;
+  state.focusId = null;
+  if (live.stream) stopLive();
+  render();
+  setTab('count');
+}
+function renderFocus() {
+  const line = state.tab === 'count' ? focusLine() : null;
+  const p = line ? productById(line.productId) : null;
+  if (state.focusId && !p) state.focusId = null;   // item removed from the delivery elsewhere
+  $('focus').hidden = !p;
+  document.body.classList.toggle('focusing', Boolean(p));
+  if (!p) return;
+  const validated = Core.isValidated(line), done = line.counted >= line.expected;
+  $('focus-thumb').innerHTML = thumb(p);
+  $('focus-name').textContent = p.name;
+  $('focus-meta').innerHTML = `<span class="bc">${esc(groupCode(p.barcode))}</span> · 1 = ${esc(p.unit)}`;
+  $('focus-count').textContent = line.counted;
+  $('focus-of').textContent = `of ${line.expected}`;
+  $('focus-chip').className = 'chip' + (done ? ' done' : validated ? ' part' : '');
+  $('focus-chip').textContent = done ? 'Done' : validated ? 'Validated' : 'Not validated';
+  $('focus-minus').disabled = !validated || line.counted <= 0;
+  $('focus-plus').disabled = !validated || done;
+  $('focus-hint').textContent = done ? 'All counted for this item.'
+    : validated ? 'Scan each unit, or tap + for each one you count.'
+    : 'Scan one first to confirm the product. + and − unlock after a correct scan.';
+  $('focus-next').hidden = !done;
+  const d = currentDelivery(), remaining = d.lines.some(l => l.counted < l.expected);
+  $('focus-next').textContent = remaining ? 'Next item' : 'Back to the list';
+}
+function step(delta) {
+  const d = currentDelivery(); if (!d || !state.focusId) return;
+  const r = Core.adjust(d, state.products, state.focusId, delta, Date.now());
+  if (r.outcome.accepted) {
+    replaceDelivery(r.delivery);
+    const done = r.outcome.kind === 'all_done';
+    show('good', r.outcome.title, r.outcome.detail, null, r.outcome.product, !done);
+    if (done) { tone([880, 1175, 1568], 'sine', .14); buzz([60, 40, 60, 40, 120]); }
+    else { tone([delta > 0 ? 1100 : 700], 'sine', .06); buzz(25); }
+  } else {
+    show('bad', r.outcome.title, r.outcome.detail, null, r.outcome.product, true);
+    tone([220], 'square', .12); buzz([120]);
+  }
+}
+$('lines').addEventListener('click', e => { const b = e.target.closest('.item-btn'); if (b && !b.disabled) openFocus(b.dataset.id); });
+$('focus-back').addEventListener('click', closeFocus);
+$('focus-plus').addEventListener('click', () => step(1));
+$('focus-minus').addEventListener('click', () => step(-1));
+$('focus-next').addEventListener('click', () => {
+  const d = currentDelivery();
+  const next = d && d.lines.find(l => l.counted < l.expected && l.productId !== state.focusId && productById(l.productId));
+  if (next) { state.focusId = next.productId; openFocus(next.productId); } else closeFocus();
 });
 
 /* new delivery */
@@ -847,6 +965,7 @@ $('product-form').addEventListener('submit', e => {
 
 /* ---------- tabs and render ---------- */
 function setTab(tab) {
+  if (tab !== 'count' && state.focusId) { state.focusId = null; if (live.stream) stopLive(); renderFocus(); }
   state.tab = tab; pref('tab', tab);
   for (const t of ['count', 'check', 'products']) $('tab-' + t).setAttribute('aria-selected', String(t === tab));
   $('scan-area').hidden = tab === 'products';
@@ -862,7 +981,7 @@ $('sound-toggle').addEventListener('click', () => {
   $('sound-toggle').textContent = state.sound ? 'Sound on' : 'Sound off';
   $('sound-toggle').setAttribute('aria-pressed', String(state.sound));
 });
-function render() { renderCount(); renderProducts(); setSaveStatus(); }
+function render() { renderCount(); renderFocus(); renderProducts(); setSaveStatus(); }
 
 /* ---------- boot ---------- */
 function fromSnapshot(snap, collection, current) {

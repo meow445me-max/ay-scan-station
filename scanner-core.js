@@ -66,7 +66,8 @@
   }
 
   // Returns {delivery, outcome}; never mutates the input. Rejected scans are logged but change no count.
-  function applyScan(delivery, products, raw, at) {
+  // With focusId set, only that product's barcode is accepted (the worker picked it from the list).
+  function applyScan(delivery, products, raw, at, focusId) {
     const parsed = parse(raw);
     let outcome;
     let lines = delivery.lines;
@@ -77,12 +78,16 @@
       const index = product ? lines.findIndex(line => line.productId === product.id) : -1;
       if (!product) {
         outcome = rejected('unknown', 'Unknown barcode', `${parsed.code} is not in the product list. Put this item aside.`, {code: parsed.code});
+      } else if (focusId && product.id !== focusId) {
+        const wanted = products.find(p => p.id === focusId);
+        outcome = rejected('not_this_item', 'Wrong item',
+          `This is ${product.name}, not ${wanted ? wanted.name : 'the selected item'}.`, {code: parsed.code, product});
       } else if (index === -1) {
         outcome = rejected('not_expected', 'Wrong item', `${product.name} is not on this delivery. Put it aside.`, {code: parsed.code, product});
       } else if (lines[index].counted >= lines[index].expected) {
         outcome = rejected('over', 'Too many', `All ${lines[index].expected} of ${product.name} are already counted. Put the extra aside.`, {code: parsed.code, product});
       } else {
-        lines = lines.map((line, i) => i === index ? Object.assign({}, line, {counted: line.counted + 1}) : line);
+        lines = lines.map((line, i) => i === index ? Object.assign({}, line, {counted: line.counted + 1, validated: true}) : line);
         const line = lines[index];
         const done = line.counted === line.expected;
         outcome = {
@@ -93,7 +98,7 @@
       }
     }
     const scan = {at, code: outcome.code || '', kind: outcome.kind, accepted: outcome.accepted,
-      productId: outcome.product ? outcome.product.id : null};
+      productId: outcome.product ? outcome.product.id : null, delta: outcome.accepted ? 1 : 0};
     const next = Object.assign({}, delivery, {lines, scans: delivery.scans.concat([scan])});
     if (outcome.accepted && totals(next).complete) {
       outcome = Object.assign({}, outcome, {kind: 'all_done', detail: 'Every item on this delivery is counted.'});
@@ -102,7 +107,33 @@
     return {delivery: next, outcome};
   }
 
-  // Removes the most recent accepted scan and its count. Rejected scans stay in the log.
+  // Lines saved before validation was tracked only ever got counts from real scans.
+  function isValidated(line) { return Boolean(line.validated) || line.counted > 0; }
+
+  // Manual +/- after the product has been validated by one correct scan. Never below 0 or above expected.
+  function adjust(delivery, products, productId, delta, at) {
+    const index = delivery.lines.findIndex(line => line.productId === productId);
+    const product = products.find(p => p.id === productId) || null;
+    const name = product ? product.name : 'this item';
+    if (index === -1 || (delta !== 1 && delta !== -1)) return {delivery, outcome: rejected('invalid', 'Not on this delivery', '')};
+    const line = delivery.lines[index];
+    let outcome = null;
+    if (!isValidated(line)) outcome = rejected('not_validated', 'Scan it first', `Scan one ${name} to confirm it is the right product, then use + and −.`, {product});
+    else if (delta === 1 && line.counted >= line.expected) outcome = rejected('over', 'Too many', `All ${line.expected} of ${name} are already counted.`, {product});
+    else if (delta === -1 && line.counted <= 0) outcome = rejected('below_zero', 'Already zero', `No ${name} counted yet.`, {product});
+    if (outcome) return {delivery, outcome};
+    const counted = line.counted + delta;
+    const lines = delivery.lines.map((l, i) => i === index ? Object.assign({}, l, {counted}) : l);
+    const scan = {at, code: product ? product.barcode : '', kind: delta > 0 ? 'manual_add' : 'manual_remove', accepted: true,
+      productId, delta, manual: true};
+    const next = Object.assign({}, delivery, {lines, scans: delivery.scans.concat([scan])});
+    outcome = {accepted: true, kind: scan.kind, product, title: name,
+      detail: counted === line.expected ? `All ${line.expected} counted for this item.` : `${counted} of ${line.expected} counted`};
+    if (delta > 0 && totals(next).complete) outcome = Object.assign({}, outcome, {kind: 'all_done', detail: 'Every item on this delivery is counted.'});
+    return {delivery: next, outcome};
+  }
+
+  // Reverses the most recent scan or +/- change. Rejected scans stay in the log.
   function undoLast(delivery) {
     let index = -1;
     for (let i = delivery.scans.length - 1; i >= 0; i -= 1) {
@@ -110,8 +141,9 @@
     }
     if (index === -1) return {delivery, undone: null};
     const scan = delivery.scans[index];
-    const lines = delivery.lines.map(line => line.productId === scan.productId && line.counted > 0
-      ? Object.assign({}, line, {counted: line.counted - 1}) : line);
+    const delta = typeof scan.delta === 'number' ? scan.delta : 1;
+    const lines = delivery.lines.map(line => line.productId === scan.productId
+      ? Object.assign({}, line, {counted: Math.min(line.expected, Math.max(0, line.counted - delta))}) : line);
     const scans = delivery.scans.map((item, i) => i === index ? Object.assign({}, item, {undone: true}) : item);
     return {delivery: Object.assign({}, delivery, {lines, scans}), undone: scan};
   }
@@ -132,5 +164,5 @@
     return {ok: true, product: {barcode, name, sku: String(input.sku || '').trim(), unit}};
   }
 
-  return {parse, checkDigitValid, matchKey, findProduct, lookup, applyScan, undoLast, totals, validateNewProduct};
+  return {parse, checkDigitValid, matchKey, findProduct, lookup, applyScan, adjust, isValidated, undoLast, totals, validateNewProduct};
 });
