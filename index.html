@@ -1,0 +1,906 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>AY Scan Station</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one narrow column like a handheld scanner screen: scan bar, big verdict, then the list being worked. */
+:root {
+  --bg: #eceff1; --surface: #ffffff; --ink: #15212a; --muted: #5a6a75; --line: #d3dade;
+  --accent: #f0b01c; --accent-ink: #1d1604;
+  --good: #17804a; --good-bg: #e2f3e8; --bad: #c4352a; --bad-bg: #fbe6e3; --idle-bg: #e4e9ec;
+  --display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0e1418; --surface: #172027; --ink: #e6ecef; --muted: #92a2ad; --line: #2a3640;
+  --accent: #f0b01c; --accent-ink: #1d1604;
+  --good: #4cc27f; --good-bg: #123020; --bad: #ff6f63; --bad-bg: #3b1714; --idle-bg: #1d2830; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0e1418; --surface: #172027; --ink: #e6ecef; --muted: #92a2ad; --line: #2a3640;
+  --accent: #f0b01c; --accent-ink: #1d1604;
+  --good: #4cc27f; --good-bg: #123020; --bad: #ff6f63; --bad-bg: #3b1714; --idle-bg: #1d2830; color-scheme: dark }
+
+[hidden] { display: none !important; }
+html, body { background: var(--bg); color: var(--ink); }
+body { font: 16px/1.45 var(--body); margin: 0; }
+.wrap { max-width: 40rem; margin: 0 auto; padding-inline: 16px; padding-block: 12px 48px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+header.top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.brand { font: 700 1.6rem/1 var(--display); letter-spacing: .02em; text-transform: uppercase; margin: 0; }
+.brand span { color: var(--muted); font-weight: 600; }
+.save { margin-left: auto; font-size: .8rem; color: var(--muted); }
+.icon-btn { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 6px 10px; font-size: .85rem; }
+
+nav.tabs { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 4px; gap: 4px; }
+nav.tabs button { border: 0; background: transparent; padding: 10px 6px; border-radius: 7px; font-weight: 600; color: var(--muted); }
+nav.tabs button[aria-selected="true"] { background: var(--ink); color: var(--surface); }
+
+.scanbar { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.scanbar input { width: 100%; min-width: 0; padding: 14px; border: 2px solid var(--line); border-radius: 10px; background: var(--surface);
+  font: 500 1.2rem var(--mono); letter-spacing: .06em; }
+.scanbar input:focus { border-color: var(--accent); outline: none; }
+.scanbar input::placeholder { font: 400 1rem var(--body); letter-spacing: 0; color: var(--muted); }
+.btn { border: 0; border-radius: 10px; padding: 12px 16px; font-weight: 600; background: var(--accent); color: var(--accent-ink); }
+.btn.cam { display: flex; align-items: center; gap: 8px; padding-inline: 18px; }
+.btn.ghost { background: transparent; border: 1px solid var(--line); color: var(--ink); }
+.btn.danger { background: transparent; border: 1px solid var(--bad); color: var(--bad); }
+.btn:disabled { opacity: .5; cursor: default; }
+.hint { font-size: .85rem; color: var(--muted); margin: 0; }
+
+.verdict { display: grid; grid-template-columns: 76px 1fr; gap: 14px; align-items: center; padding: 14px; border-radius: 14px;
+  background: var(--idle-bg); min-height: 104px; }
+.verdict .mark { width: 76px; height: 76px; border-radius: 12px; display: grid; place-items: center; font: 700 2.6rem/1 var(--display);
+  background: var(--surface); color: var(--muted); overflow: hidden; }
+.verdict .mark img { width: 100%; height: 100%; object-fit: cover; }
+.verdict h2 { margin: 0; font: 700 1.9rem/1.05 var(--display); text-transform: uppercase; letter-spacing: .01em; text-wrap: balance; }
+.verdict p { margin: 4px 0 0; }
+.verdict .code { font-family: var(--mono); font-size: .9rem; color: var(--muted); }
+.verdict.good { background: var(--good-bg); } .verdict.good h2 { color: var(--good); }
+.verdict.bad { background: var(--bad-bg); } .verdict.bad h2 { color: var(--bad); }
+.verdict.good .mark.sym { background: var(--good); color: var(--surface); }
+.verdict.bad .mark.sym { background: var(--bad); color: var(--surface); }
+.verdict.flash { animation: flash .35s ease-out; }
+@keyframes flash { from { transform: scale(.97); } to { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .verdict.flash { animation: none; } }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: grid; gap: 12px; min-width: 0; }
+.panel h3 { margin: 0; font: 700 1.25rem/1.1 var(--display); text-transform: uppercase; letter-spacing: .03em; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.row > select, .row > input { flex: 1 1 10rem; min-width: 0; }
+select, .field input { padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+label.field { display: grid; gap: 4px; font-size: .85rem; color: var(--muted); }
+label.field input { color: var(--ink); font-size: 1rem; }
+.barcode-input { font-family: var(--mono); letter-spacing: .05em; }
+
+.progress { display: grid; gap: 6px; }
+.progress .nums { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
+.progress .nums strong { font: 700 1.5rem/1 var(--display); }
+.bar { height: 10px; border-radius: 5px; background: var(--idle-bg); overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--good); transition: width .25s; }
+
+ul.lines, ul.log, ul.products { list-style: none; margin: 0; padding: 0; display: grid; }
+.item { display: grid; grid-template-columns: 52px 1fr auto; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.item:first-child { border-top: 0; }
+.thumb { width: 52px; height: 52px; border-radius: 9px; background: var(--idle-bg); display: grid; place-items: center; overflow: hidden;
+  font: 700 1.2rem var(--display); color: var(--muted); }
+.thumb img { width: 100%; height: 100%; object-fit: cover; }
+.item .name { font-weight: 600; overflow-wrap: anywhere; }
+.item .meta { font-size: .8rem; color: var(--muted); overflow-wrap: anywhere; }
+.item .meta .bc { font-family: var(--mono); }
+.qty { text-align: right; font-variant-numeric: tabular-nums; }
+.qty strong { font: 700 1.5rem/1 var(--display); }
+.chip { display: inline-block; font-size: .72rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 2px 7px; border-radius: 99px;
+  background: var(--idle-bg); color: var(--muted); }
+.chip.done { background: var(--good-bg); color: var(--good); }
+.chip.part { background: var(--accent); color: var(--accent-ink); }
+
+ul.log li { display: grid; grid-template-columns: 3.6rem 1.4rem 1fr; gap: 6px; padding: 6px 0; border-top: 1px solid var(--line); font-size: .88rem; }
+ul.log li:first-child { border-top: 0; }
+ul.log time { color: var(--muted); font-variant-numeric: tabular-nums; }
+ul.log .ok { color: var(--good); font-weight: 700; } ul.log .no { color: var(--bad); font-weight: 700; }
+ul.log .undone { text-decoration: line-through; color: var(--muted); }
+
+.new-lines { display: grid; gap: 8px; }
+.new-lines .row input[type=number] { flex: 0 0 5.5rem; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.confirm { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 10px; border-radius: 10px; background: var(--bad-bg); }
+.empty { color: var(--muted); margin: 0; }
+.notice { font-size: .82rem; color: var(--muted); margin: 0; }
+.error-text { color: var(--bad); font-size: .9rem; margin: 0; }
+.prod-actions { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+.prod-actions .btn { padding: 6px 10px; font-size: .8rem; }
+
+/* Whole-screen verdict: a strong flash, then the page stays tinted until the next scan. */
+:root { --sem-ink: #ffffff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --sem-ink: #0e1418; } }
+:root[data-theme="dark"] { --sem-ink: #0e1418; }
+:root.state-good { --bg: var(--good-bg); }
+:root.state-bad { --bg: var(--bad-bg); }
+html, body { transition: background-color .3s; }
+#flash { position: fixed; inset: 0; z-index: 50; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 24px;
+  text-align: center; pointer-events: none; opacity: 0; color: var(--sem-ink); }
+#flash.good { background: var(--good); } #flash.bad { background: var(--bad); }
+#flash.on { animation: screenflash 1.1s ease-out forwards; }
+@keyframes screenflash { 0%, 55% { opacity: .97; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { #flash.on { animation: none; opacity: .97; } }
+#flash .flash-icon { font: 700 8rem/1 var(--display); }
+#flash .flash-title { font: 700 2.4rem/1.05 var(--display); text-transform: uppercase; max-width: 18ch; text-wrap: balance; overflow-wrap: anywhere; }
+#flash .flash-detail { font-size: 1.1rem; max-width: 28ch; }
+
+/* Live scanner */
+.live { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.live-view { position: relative; height: min(34vh, 22rem); border-radius: 14px; overflow: hidden; background: #000; touch-action: none; }
+.live-view video { width: 100%; height: 100%; object-fit: cover; transform-origin: center; display: block; }
+.reticle { position: absolute; left: 11%; right: 11%; top: 33%; bottom: 33%; border-radius: 10px;
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .38); border: 3px solid rgba(255, 255, 255, .9); transition: border-color .15s; }
+.reticle.hit-good { border-color: #39d07f; } .reticle.hit-bad { border-color: #ff5a4e; }
+.laser { position: absolute; left: 6px; right: 6px; height: 2px; background: #ff4b3e; box-shadow: 0 0 8px #ff4b3e; top: 50%; animation: laser 1.6s ease-in-out infinite alternate; }
+@keyframes laser { from { top: 12%; } to { top: 88%; } }
+@media (prefers-reduced-motion: reduce) { .laser { animation: none; } }
+.live-msg { position: absolute; left: 0; right: 0; bottom: 10px; margin: 0; text-align: center; color: #fff; font-weight: 600; font-size: .9rem; text-shadow: 0 1px 3px #000; }
+.live-controls { display: flex; align-items: center; gap: 6px; }
+body.scanning .top, body.scanning #scan-hint { display: none; }
+.live-controls input[type=range] { flex: 1 1 0; width: 0; min-width: 0; accent-color: var(--accent); }
+.ctl { min-width: 44px; height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-weight: 700; font-size: 1.05rem; padding: 0 12px; }
+.ctl[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.ctl.stop { margin-left: auto; }
+.zoom-val { font: 600 .85rem var(--mono); min-width: 2.6rem; text-align: center; font-variant-numeric: tabular-nums; }
+</style>
+<div id="flash" aria-hidden="true"><div class="flash-icon"></div><div class="flash-title"></div><div class="flash-detail"></div></div>
+
+<div class="wrap">
+  <header class="top">
+    <h1 class="brand">AY Supply <span>Scan Station</span></h1>
+    <span class="save" id="save-status">Loading…</span>
+    <button class="icon-btn" id="sound-toggle" type="button" aria-pressed="true">Sound on</button>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button type="button" role="tab" id="tab-count" aria-selected="true">Count delivery</button>
+    <button type="button" role="tab" id="tab-check" aria-selected="false">Check item</button>
+    <button type="button" role="tab" id="tab-products" aria-selected="false">Products</button>
+  </nav>
+
+  <section id="live" class="live" hidden aria-label="Live camera scanner">
+    <div class="live-view" id="live-view">
+      <video id="live-video" playsinline muted autoplay></video>
+      <div class="reticle" id="reticle"><i class="laser"></i></div>
+      <p class="live-msg" id="live-msg">Hold the barcode inside the box</p>
+    </div>
+    <div class="live-controls">
+      <button class="ctl" type="button" id="zoom-out" aria-label="Zoom out">−</button>
+      <input type="range" id="zoom" min="1" max="4" step="0.1" value="1" aria-label="Zoom">
+      <button class="ctl" type="button" id="zoom-in" aria-label="Zoom in">+</button>
+      <span class="zoom-val" id="zoom-val">1.0×</span>
+      <button class="ctl" type="button" id="torch" aria-pressed="false" hidden>Flash</button>
+      <button class="ctl stop" type="button" id="live-close">Close</button>
+    </div>
+  </section>
+
+  <section id="scan-area" class="wrap" style="padding:0">
+    <form class="scanbar" id="scan-form" autocomplete="off">
+      <input id="scan-input" inputmode="numeric" placeholder="Scan or type barcode" aria-label="Barcode">
+      <button class="btn cam" type="button" id="scan-cam">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M7 8v8M10 8v8M13 8v8M17 8v8" /></svg>
+        Scan
+      </button>
+    </form>
+    <p class="hint" id="scan-hint">Tap Scan to use the live camera, use a USB scanner, or type the number and press Enter.</p>
+    <div class="verdict" id="verdict" role="status" aria-live="polite">
+      <div class="mark sym" id="verdict-mark">▮</div>
+      <div><h2 id="verdict-title">Ready to scan</h2><p id="verdict-detail">Pick a delivery below, then scan each item as you unpack it.</p><p class="code" id="verdict-code"></p></div>
+    </div>
+  </section>
+
+  <!-- Count delivery -->
+  <section id="view-count" class="wrap" style="padding:0">
+    <div class="panel">
+      <div class="row">
+        <select id="delivery-select" aria-label="Delivery"></select>
+        <button class="btn ghost" type="button" id="new-delivery-btn">New delivery</button>
+      </div>
+      <div class="progress" id="progress"></div>
+      <ul class="lines" id="lines"></ul>
+      <div class="row">
+        <button class="btn ghost" type="button" id="undo-btn">Undo last scan</button>
+        <button class="btn danger" type="button" id="delete-delivery-btn" style="margin-left:auto">Delete delivery</button>
+      </div>
+      <div class="confirm" id="delete-delivery-confirm" hidden>
+        <span>Delete this delivery and its counts?</span>
+        <button class="btn danger" type="button" id="delete-delivery-yes">Delete</button>
+        <button class="btn ghost" type="button" id="delete-delivery-no">Keep</button>
+      </div>
+    </div>
+
+    <form class="panel" id="new-delivery" hidden>
+      <h3>New delivery</h3>
+      <label class="field">Name<input id="nd-name" maxlength="80" required></label>
+      <div class="new-lines" id="nd-lines"></div>
+      <button class="btn ghost" type="button" id="nd-add">Add another item</button>
+      <p class="error-text" id="nd-error" hidden></p>
+      <div class="row"><button class="btn" type="submit">Create delivery</button><button class="btn ghost" type="button" id="nd-cancel">Cancel</button></div>
+    </form>
+
+    <div class="panel">
+      <h3>Scan history</h3>
+      <ul class="log" id="log"></ul>
+    </div>
+  </section>
+
+  <!-- Products -->
+  <section id="view-products" class="wrap" style="padding:0" hidden>
+    <form class="panel" id="product-form" autocomplete="off">
+      <h3>Add a product</h3>
+      <label class="field">Barcode
+        <span class="scanbar"><input id="pf-barcode" class="barcode-input" inputmode="numeric" placeholder="Scan, type or use camera" required>
+        <button class="btn cam" type="button" id="pf-cam">Scan</button></span>
+      </label>
+      <label class="field">Product name<input id="pf-name" maxlength="120" required></label>
+      <div class="row">
+        <label class="field" style="flex:1 1 9rem">SKU (optional)<input id="pf-sku" maxlength="60"></label>
+        <label class="field" style="flex:1 1 9rem">One scan counts as<input id="pf-unit" maxlength="60" placeholder="1 each"></label>
+      </div>
+      <p class="error-text" id="pf-error" hidden></p>
+      <div class="row"><button class="btn" type="submit">Add product</button></div>
+    </form>
+    <div class="panel">
+      <h3>Product list</h3>
+      <p class="notice" id="photo-note"></p>
+      <ul class="products" id="product-list"></ul>
+    </div>
+  </section>
+
+  <p class="notice">Practice tool. Counting here does not change stock in Finale or records in Method or QuickBooks.</p>
+  <input type="file" id="cam-file" accept="image/*" capture="environment" hidden>
+  <input type="file" id="photo-file" accept="image/*" capture="environment" hidden>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script src="scanner-core.js"></script>
+<script>
+'use strict';
+(() => {
+const Core = window.ScannerCore;
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const finePointer = matchMedia('(pointer: fine)').matches;
+const MAX_LOG = 300;
+
+// Built-in examples, used only when this copy cannot save online (opened as a local file).
+const EXAMPLE_PRODUCTS = [
+  {id: 'aytest-a', barcode: '200001000102', name: 'ChatGPT AYTEST Product A', sku: 'CHATGPT-AYTEST-A', unit: '1 each'},
+  {id: 'forest-mint', barcode: '5061028595751', name: 'Off-Stamp Ice Cube Forest Mint', sku: 'GPT-PHOTO-OFFSTAMP-FOREST-MINT', unit: '1 five-piece pack'},
+  {id: 'wintergreen', barcode: '5061028595256', name: 'Off-Stamp Sweet Cube Wintergreen Blast', sku: 'GPT-PHOTO-OFFSTAMP-WINTERGREEN', unit: '1 five-piece pack'},
+  {id: 'addyz-xr', barcode: '604634038325', name: 'ADDYZ XR', sku: 'GPT-PHOTO-ADDYZ-XR', unit: '1 retail box'},
+];
+const EXAMPLE_DELIVERY = {id: 'example-delivery', name: 'Example delivery (practice)', createdAt: 0,
+  lines: [{productId: 'forest-mint', expected: 3, counted: 0}, {productId: 'wintergreen', expected: 2, counted: 0}, {productId: 'addyz-xr', expected: 1, counted: 0}],
+  scans: []};
+
+const state = {products: [], deliveries: [], ready: false, mode: 'local', tab: 'count', deliveryId: null, sound: true, last: null};
+let db = null, assets = null;
+
+/* ---------- per-viewer conveniences ---------- */
+function pref(key, value) {
+  try {
+    if (value === undefined) return localStorage.getItem('ay-scan-pref:' + key);
+    localStorage.setItem('ay-scan-pref:' + key, value);
+  } catch (_e) { return null; }
+}
+
+/* ---------- saving ---------- */
+const queues = new Map();
+let saveFailed = false;
+function setSaveStatus() {
+  const busy = [...queues.values()].some(q => q.busy);
+  $('save-status').textContent = state.mode === 'db'
+    ? (saveFailed ? 'Not saved — check connection' : busy ? 'Saving…' : 'Saved')
+    : 'Saved on this device only';
+}
+function persist(collection, id, body) {
+  if (state.mode !== 'db') { saveLocal(); return; }
+  const path = collection + '/' + id;
+  const q = queues.get(path) || {busy: false, next: undefined};
+  q.next = body; queues.set(path, q);
+  if (!q.busy) drain(path, q);
+  setSaveStatus();
+}
+async function drain(path, q) {
+  q.busy = true;
+  while (q.next !== undefined) {
+    const body = q.next; q.next = undefined;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        if (body === null) await db.doc(path).delete(); else await db.doc(path).set(body);
+        saveFailed = false; break;
+      } catch (e) {
+        if (attempt === 0 && e && (e.code === 'unavailable' || e.code === 'resource_exhausted')) {
+          await new Promise(r => setTimeout(r, 500 + Math.random() * 800)); continue;
+        }
+        saveFailed = true;
+        if (e && e.code === 'quota_exceeded') show('bad', 'Storage full', 'Delete old deliveries to make room, then try again.');
+        break;
+      }
+    }
+  }
+  q.busy = false; setSaveStatus();
+}
+function pendingPaths() { return new Set([...queues.entries()].filter(([, q]) => q.busy || q.next !== undefined).map(([p]) => p)); }
+function saveLocal() {
+  try { localStorage.setItem('ay-scan-local', JSON.stringify({products: state.products, deliveries: state.deliveries})); } catch (_e) {}
+  setSaveStatus();
+}
+function loadLocal() {
+  try {
+    const raw = localStorage.getItem('ay-scan-local');
+    if (raw) { const v = JSON.parse(raw); if (Array.isArray(v.products) && Array.isArray(v.deliveries)) return v; }
+  } catch (_e) {}
+  return {products: EXAMPLE_PRODUCTS.slice(), deliveries: [JSON.parse(JSON.stringify(EXAMPLE_DELIVERY))]};
+}
+function bodyOf(obj) { const copy = Object.assign({}, obj); delete copy.id; return copy; }
+const uid = prefix => prefix + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+/* ---------- lookups ---------- */
+const productById = id => state.products.find(p => p.id === id) || null;
+const currentDelivery = () => state.deliveries.find(d => d.id === state.deliveryId) || null;
+function groupCode(code) {
+  if (!code) return '';
+  if (code.length === 12) return `${code[0]} ${code.slice(1, 6)} ${code.slice(6, 11)} ${code[11]}`;
+  if (code.length === 13) return `${code[0]} ${code.slice(1, 7)} ${code.slice(7)}`;
+  return code;
+}
+function initials(name) { return esc(String(name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase()); }
+function photoUrl(p) { return p && p.photoId ? '/_blob/' + encodeURIComponent(p.photoId) : null; }
+function thumb(p) {
+  const url = photoUrl(p);
+  return url ? `<img src="${esc(url)}" alt="">` : initials(p ? p.name : '?');
+}
+
+/* ---------- feedback ---------- */
+let audio = null;
+function tone(freqs, type, dur) {
+  if (!state.sound) return;
+  try {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    let t = audio.currentTime;
+    for (const f of freqs) {
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.type = type; o.frequency.value = f; g.gain.setValueAtTime(.18, t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
+      o.connect(g).connect(audio.destination); o.start(t); o.stop(t + dur); t += dur * .9;
+    }
+  } catch (_e) {}
+}
+function buzz(pattern) { try { navigator.vibrate && navigator.vibrate(pattern); } catch (_e) {} }
+function show(kind, title, detail, code, product) {
+  const v = $('verdict');
+  v.className = 'verdict' + (kind === 'good' ? ' good' : kind === 'bad' ? ' bad' : '');
+  void v.offsetWidth; if (kind !== 'idle') v.classList.add('flash');
+  const mark = $('verdict-mark');
+  if (product && photoUrl(product)) { mark.className = 'mark'; mark.innerHTML = thumb(product); }
+  else { mark.className = 'mark sym'; mark.textContent = kind === 'good' ? '✓' : kind === 'bad' ? '✕' : kind === 'busy' ? '…' : '▮'; }
+  $('verdict-title').textContent = title;
+  $('verdict-detail').textContent = detail || '';
+  $('verdict-code').textContent = code ? groupCode(code) : '';
+  screenState(kind, title, detail);
+}
+let flashTimer = null;
+function screenState(kind, title, detail) {
+  const root = document.documentElement, f = $('flash');
+  root.classList.toggle('state-good', kind === 'good');
+  root.classList.toggle('state-bad', kind === 'bad');
+  clearTimeout(flashTimer);
+  f.className = '';
+  if (kind !== 'good' && kind !== 'bad') return;
+  f.querySelector('.flash-icon').textContent = kind === 'good' ? '✓' : '✕';
+  f.querySelector('.flash-title').textContent = title;
+  f.querySelector('.flash-detail').textContent = detail || '';
+  void f.offsetWidth;
+  f.className = kind + ' on';
+  flashTimer = setTimeout(() => { f.className = ''; }, 1100);
+}
+function announce(outcome) {
+  state.last = outcome;
+  if (outcome.accepted) {
+    show('good', outcome.title, outcome.detail, outcome.code, outcome.product);
+    if (outcome.kind === 'all_done') { tone([880, 1175, 1568], 'sine', .14); buzz([60, 40, 60, 40, 120]); }
+    else { tone([1320], 'sine', .1); buzz(60); }
+  } else {
+    show('bad', outcome.title, outcome.detail, outcome.code, outcome.product);
+    tone([220, 180], 'square', .16); buzz([200, 80, 200]);
+  }
+}
+
+/* ---------- scanning ---------- */
+function handleScan(raw) {
+  if (!state.ready) return;
+  if (state.tab === 'check') { announce(Core.lookup(state.products, raw)); return; }
+  const d = currentDelivery();
+  if (!d) { show('bad', 'No delivery selected', 'Create a delivery first, then scan its items.'); return; }
+  const result = Core.applyScan(d, state.products, raw, Date.now());
+  const next = result.delivery;
+  if (next.scans.length > MAX_LOG) next.scans = next.scans.slice(-MAX_LOG);
+  replaceDelivery(next);
+  announce(result.outcome);
+}
+function replaceDelivery(d) {
+  state.deliveries = state.deliveries.map(x => x.id === d.id ? d : x);
+  persist('deliveries', d.id, bodyOf(d));
+  render();
+}
+$('scan-form').addEventListener('submit', e => {
+  e.preventDefault();
+  const input = $('scan-input'); const value = input.value;
+  input.value = '';
+  handleScan(value);
+  if (finePointer) input.focus();
+});
+
+/* Camera: the phone's own camera takes a photo; the barcode is read from that photo on this device. */
+let camTarget = 'scan';
+let liveUnavailable = !(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+function openPhotoCamera() { $('cam-file').value = ''; $('cam-file').click(); }
+async function openCamera(target) {
+  camTarget = target;
+  if (liveUnavailable) { openPhotoCamera(); return; }   // stays inside the tap, so the photo picker is allowed to open
+  if (live.stream) {
+    if (live.target === target) stopLive(); else live.target = target;
+    return;
+  }
+  const ok = await startLive(target);
+  if (!ok) {
+    liveUnavailable = true;
+    show('idle', 'Live camera not available here', 'Tap Scan again to take a photo of the barcode instead.');
+  }
+}
+$('scan-cam').addEventListener('click', () => openCamera('scan'));
+$('pf-cam').addEventListener('click', () => openCamera('product'));
+$('cam-file').addEventListener('change', async () => {
+  const file = $('cam-file').files[0];
+  if (!file) return;
+  if (camTarget === 'scan') show('busy', 'Reading barcode…', 'Hold on a moment.');
+  let code = null;
+  try { code = await decodeImage(file); } catch (_e) { code = null; }
+  if (camTarget === 'product') {
+    if (code) { $('pf-barcode').value = code; $('pf-error').hidden = true; }
+    else { $('pf-error').textContent = 'No barcode found in that photo. Fill the frame with the barcode, keep it sharp, and try again.'; $('pf-error').hidden = false; }
+    return;
+  }
+  if (code) handleScan(code);
+  else { show('bad', 'No barcode found', 'Fill the photo with the barcode, keep it flat and in focus, and avoid glare. Then try again.'); tone([220], 'square', .16); }
+});
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file); const img = new Image();
+    img.onload = () => { resolve(img); setTimeout(() => URL.revokeObjectURL(url), 1000); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('image')); };
+    img.src = url;
+  });
+}
+function scaled(img, max, rotate) {
+  const ratio = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+  const w = Math.round(img.naturalWidth * ratio), h = Math.round(img.naturalHeight * ratio);
+  const c = document.createElement('canvas');
+  c.width = rotate ? h : w; c.height = rotate ? w : h;
+  const g = c.getContext('2d');
+  if (rotate) { g.translate(h, 0); g.rotate(Math.PI / 2); }
+  g.drawImage(img, 0, 0, w, h);
+  return c;
+}
+async function decodeImage(file) {
+  const img = await loadImage(file);
+  if ('BarcodeDetector' in window) {
+    try {
+      const supported = await window.BarcodeDetector.getSupportedFormats();
+      const wanted = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'itf'].filter(f => supported.includes(f));
+      if (wanted.length) {
+        const found = await new window.BarcodeDetector({formats: wanted}).detect(scaled(img, 2000));
+        if (found.length) return found[0].rawValue;
+      }
+    } catch (_e) {}
+  }
+  const Z = window.ZXing;
+  if (!Z) return null;
+  const hints = new Map();
+  // TRY_HARDER only: a POSSIBLE_FORMATS hint stopped 1D barcodes from being read in testing.
+  hints.set(Z.DecodeHintType.TRY_HARDER, true);
+  const reader = new Z.BrowserMultiFormatReader(hints);
+  // Barcodes printed sideways on the package come out vertical in the photo, so also try it turned.
+  for (const [max, rotate] of [[1400, false], [1400, true], [900, false], [900, true], [2200, false]]) {
+    try {
+      return (await reader.decodeFromImageUrl(scaled(img, max, rotate).toDataURL('image/png'))).getText();
+    } catch (_e) { /* try the next size or angle */ }
+  }
+  return null;
+}
+
+/* ---------- live camera scanner ----------
+   Reads only the area inside the box, about 12 times a second. A code must be read twice in a row before it
+   counts, and a code held in view counts once: it must leave the box for 1.2 s before it can count again. */
+const live = {stream: null, track: null, target: 'scan', timer: 0, frame: 0, detector: null, hwZoom: null, zoom: 1,
+  torch: false, candidate: null, hits: 0, candidateAt: 0, held: new Map(), resumeOnShow: false};
+const LIVE = {interval: 80, confirmReads: 2, confirmWindow: 700, rearmAfter: 1200};
+let zFast = null, zHard = null;
+function zxingReaders() {
+  const Z = window.ZXing;
+  if (!Z || zFast) return;
+  zFast = new Z.MultiFormatReader(); zFast.setHints(new Map());
+  const hard = new Map(); hard.set(Z.DecodeHintType.TRY_HARDER, true);
+  zHard = new Z.MultiFormatReader(); zHard.setHints(hard);
+}
+async function startLive(target) {
+  live.target = target;
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({audio: false, video: {
+      facingMode: {ideal: 'environment'}, width: {ideal: 1920}, height: {ideal: 1080}}});
+  } catch (_e) { return false; }
+  live.stream = stream; live.track = stream.getVideoTracks()[0];
+  const video = $('live-video'); video.srcObject = stream;
+  try { await video.play(); } catch (_e) {}
+  $('live').hidden = false; $('scan-cam').setAttribute('aria-pressed', 'true');
+  document.body.classList.add('scanning'); $('scan-cam').lastChild.textContent = ' Stop';
+  $('live-msg').textContent = target === 'product' ? 'Scan the new product’s barcode' : 'Hold the barcode inside the box';
+  await setupCameraFeatures();
+  live.detector = null;
+  if ('BarcodeDetector' in window) {
+    try {
+      const supported = await window.BarcodeDetector.getSupportedFormats();
+      const wanted = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'itf'].filter(f => supported.includes(f));
+      if (wanted.length) live.detector = new window.BarcodeDetector({formats: wanted});
+    } catch (_e) {}
+  }
+  zxingReaders();
+  live.held.clear(); live.candidate = null; live.hits = 0;
+  clearTimeout(live.timer); liveLoop();
+  return true;
+}
+function stopLive() {
+  clearTimeout(live.timer); live.timer = 0;
+  if (live.stream) live.stream.getTracks().forEach(t => t.stop());
+  live.stream = null; live.track = null; live.torch = false;
+  $('live-video').srcObject = null; $('live').hidden = true;
+  $('scan-cam').setAttribute('aria-pressed', 'false');
+  document.body.classList.remove('scanning'); $('scan-cam').lastChild.textContent = ' Scan';
+}
+$('live-close').addEventListener('click', stopLive);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && live.stream) { live.resumeOnShow = live.target; stopLive(); }
+  else if (!document.hidden && live.resumeOnShow) { const t = live.resumeOnShow; live.resumeOnShow = false; startLive(t); }
+});
+
+async function setupCameraFeatures() {
+  const caps = live.track && live.track.getCapabilities ? live.track.getCapabilities() : {};
+  const advanced = [];
+  if (Array.isArray(caps.focusMode) && caps.focusMode.includes('continuous')) advanced.push({focusMode: 'continuous'});
+  if (advanced.length) { try { await live.track.applyConstraints({advanced}); } catch (_e) {} }
+  const slider = $('zoom');
+  if (caps.zoom && caps.zoom.max > caps.zoom.min) {
+    live.hwZoom = {min: caps.zoom.min, max: Math.min(caps.zoom.max, 10), step: caps.zoom.step || 0.1};
+    slider.min = live.hwZoom.min; slider.max = live.hwZoom.max; slider.step = live.hwZoom.step;
+  } else {
+    live.hwZoom = null; slider.min = 1; slider.max = 4; slider.step = 0.1;
+  }
+  setZoom(live.hwZoom ? Math.max(live.hwZoom.min, 1) : 1);
+  $('torch').hidden = !caps.torch;
+  $('torch').setAttribute('aria-pressed', 'false');
+}
+async function setZoom(value) {
+  const min = Number($('zoom').min), max = Number($('zoom').max);
+  live.zoom = Math.min(max, Math.max(min, Math.round(value * 10) / 10));
+  $('zoom').value = live.zoom; $('zoom-val').textContent = live.zoom.toFixed(1) + '×';
+  if (live.hwZoom) {
+    $('live-video').style.transform = '';
+    try { await live.track.applyConstraints({advanced: [{zoom: live.zoom}]}); } catch (_e) {}
+  } else {
+    $('live-video').style.transform = live.zoom > 1 ? `scale(${live.zoom})` : '';
+  }
+}
+$('zoom').addEventListener('input', e => setZoom(Number(e.target.value)));
+$('zoom-in').addEventListener('click', () => setZoom(live.zoom + (live.hwZoom ? Math.max(live.hwZoom.step, .5) : .5)));
+$('zoom-out').addEventListener('click', () => setZoom(live.zoom - (live.hwZoom ? Math.max(live.hwZoom.step, .5) : .5)));
+$('torch').addEventListener('click', async () => {
+  if (!live.track) return;
+  const on = !live.torch;
+  try { await live.track.applyConstraints({advanced: [{torch: on}]}); live.torch = on; } catch (_e) { live.torch = false; }
+  $('torch').setAttribute('aria-pressed', String(live.torch));
+});
+// Pinch to zoom on the camera view, and the mouse wheel on a computer.
+(() => {
+  const view = $('live-view'); const touches = new Map(); let startDist = 0, startZoom = 1;
+  const dist = () => { const [a, b] = [...touches.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+  view.addEventListener('pointerdown', e => { touches.set(e.pointerId, {x: e.clientX, y: e.clientY}); if (touches.size === 2) { startDist = dist(); startZoom = live.zoom; } });
+  view.addEventListener('pointermove', e => {
+    if (!touches.has(e.pointerId)) return;
+    touches.set(e.pointerId, {x: e.clientX, y: e.clientY});
+    if (touches.size === 2 && startDist > 0) setZoom(startZoom * dist() / startDist);
+  });
+  const end = e => { touches.delete(e.pointerId); if (touches.size < 2) startDist = 0; };
+  view.addEventListener('pointerup', end); view.addEventListener('pointercancel', end);
+  view.addEventListener('wheel', e => { e.preventDefault(); setZoom(live.zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1)); }, {passive: false});
+})();
+
+const cropCanvas = document.createElement('canvas');
+function cropFrame(video) {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const view = $('live-view').getBoundingClientRect(), box = $('reticle').getBoundingClientRect();
+  if (!vw || !vh || !view.width) return null;
+  const digital = live.hwZoom ? 1 : live.zoom;
+  const scale = Math.max(view.width / vw, view.height / vh) * digital;      // screen px per video px (object-fit: cover)
+  const cx = vw / 2, cy = vh / 2;
+  const bx = (box.left + box.width / 2 - (view.left + view.width / 2)) / scale + cx;
+  const by = (box.top + box.height / 2 - (view.top + view.height / 2)) / scale + cy;
+  const w = Math.min(vw, box.width / scale * 1.15), h = Math.min(vh, box.height / scale * 1.3);  // a little margin for the quiet zone
+  const sx = Math.max(0, bx - w / 2), sy = Math.max(0, by - h / 2);
+  const out = Math.min(3, 960 / w);   // shrink big crops for speed; enlarge small (zoomed) crops so thin bars stay readable
+  cropCanvas.width = Math.round(w * out); cropCanvas.height = Math.round(h * out);
+  const g = cropCanvas.getContext('2d', {willReadFrequently: true});
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(video, sx, sy, w, h, 0, 0, cropCanvas.width, cropCanvas.height);
+  return cropCanvas;
+}
+function zxingDecode(canvas, hard) {
+  const Z = window.ZXing; if (!Z || !zFast) return null;
+  const {width: w, height: h} = canvas;
+  const px = canvas.getContext('2d', {willReadFrequently: true}).getImageData(0, 0, w, h).data;
+  const lum = new Uint8ClampedArray(w * h);
+  for (let i = 0, j = 0; i < lum.length; i += 1, j += 4) lum[i] = (px[j] * 77 + px[j + 1] * 150 + px[j + 2] * 29) >> 8;
+  try {
+    const bitmap = new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.RGBLuminanceSource(lum, w, h)));
+    return (hard ? zHard : zFast).decodeWithState(bitmap).getText();
+  } catch (_e) { return null; }
+}
+async function liveLoop() {
+  if (!live.stream) return;
+  const video = $('live-video');
+  if (video.readyState >= 2) {
+    const canvas = cropFrame(video);
+    let code = null;
+    if (canvas) {
+      if (live.detector) {
+        try { const found = await live.detector.detect(canvas); if (found.length) code = found[0].rawValue; } catch (_e) {}
+      }
+      if (!code) code = zxingDecode(canvas, live.frame % 3 === 2);
+      live.frame += 1;
+    }
+    if (code) onLiveRead(code.replace(/\s+/g, ''));
+  }
+  if (live.stream) live.timer = setTimeout(liveLoop, LIVE.interval);
+}
+function onLiveRead(code) {
+  if (!Core.parse(code).ok) return;              // misreads (bad check digit) are dropped silently while live
+  const now = performance.now();
+  const heldAt = live.held.get(code);
+  if (heldAt !== undefined && now - heldAt < LIVE.rearmAfter) { live.held.set(code, now); return; }
+  if (live.candidate === code && now - live.candidateAt < LIVE.confirmWindow) live.hits += 1;
+  else { live.candidate = code; live.hits = 1; }
+  live.candidateAt = now;
+  if (live.hits < LIVE.confirmReads) return;
+  live.hits = 0; live.held.set(code, now);
+  if (live.target === 'product') {
+    $('pf-barcode').value = code; $('pf-error').hidden = true; stopLive(); tone([1320], 'sine', .1); $('pf-name').focus();
+    return;
+  }
+  state.last = null;
+  handleScan(code);
+  const r = $('reticle'); const good = state.last && state.last.accepted;
+  r.classList.remove('hit-good', 'hit-bad'); void r.offsetWidth; r.classList.add(good ? 'hit-good' : 'hit-bad');
+  setTimeout(() => r.classList.remove('hit-good', 'hit-bad'), 600);
+}
+
+/* ---------- count view ---------- */
+function renderCount() {
+  const sel = $('delivery-select');
+  const ds = state.deliveries.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  if (!currentDelivery()) state.deliveryId = ds.length ? ds[0].id : null;
+  sel.innerHTML = ds.length ? ds.map(d => {
+    const t = Core.totals(d);
+    return `<option value="${esc(d.id)}"${d.id === state.deliveryId ? ' selected' : ''}>${esc(d.name)} · ${t.counted}/${t.expected}${t.complete ? ' ✓' : ''}</option>`;
+  }).join('') : '<option value="">No deliveries yet</option>';
+  sel.disabled = !ds.length;
+  const d = currentDelivery();
+  $('undo-btn').disabled = !d || !d.scans.some(s => s.accepted && !s.undone);
+  $('delete-delivery-btn').disabled = !d;
+  if (!d) {
+    $('progress').innerHTML = '';
+    $('lines').innerHTML = `<li><p class="empty">${state.products.length ? 'Tap New delivery and list what you expect to receive.' : 'Add your products first on the Products tab, then create a delivery.'}</p></li>`;
+    $('log').innerHTML = '<li><p class="empty">Scans will appear here.</p></li>';
+    return;
+  }
+  const t = Core.totals(d);
+  const pct = t.expected ? Math.round(t.counted / t.expected * 100) : 0;
+  $('progress').innerHTML = `<div class="nums"><span><strong>${t.counted}</strong> of ${t.expected} counted</span><span>${t.complete ? '<span class="chip done">Complete</span>' : `${t.remaining} to go`}</span></div>
+    <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="${t.expected}" aria-valuenow="${t.counted}"><i style="width:${pct}%"></i></div>`;
+  $('lines').innerHTML = d.lines.map(line => {
+    const p = productById(line.productId);
+    const status = line.counted === line.expected ? '<span class="chip done">Done</span>' : line.counted ? '<span class="chip part">Counting</span>' : '<span class="chip">Waiting</span>';
+    return `<li class="item"><div class="thumb">${thumb(p)}</div>
+      <div style="min-width:0"><div class="name">${esc(p ? p.name : 'Removed product')}</div>
+      <div class="meta"><span class="bc">${esc(groupCode(p ? p.barcode : ''))}</span>${p ? ' · ' + esc(p.unit) : ''}</div></div>
+      <div class="qty"><strong>${line.counted}</strong> / ${line.expected}<br>${status}</div></li>`;
+  }).join('');
+  const LABELS = {counted: 'Counted', line_done: 'Item complete', all_done: 'Delivery complete', unknown: 'Unknown barcode', not_expected: 'Wrong item',
+    over: 'Too many', bad_check_digit: 'Misread', not_digits: 'Not a barcode', empty: 'Empty scan'};
+  const recent = d.scans.slice(-25).reverse();
+  $('log').innerHTML = recent.length ? recent.map(s => {
+    const p = productById(s.productId);
+    const when = new Date(s.at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+    const what = `${LABELS[s.kind] || s.kind}: ${p ? p.name : groupCode(s.code)}`;
+    return `<li><time>${esc(when)}</time><span class="${s.accepted ? 'ok' : 'no'}">${s.accepted ? '✓' : '✕'}</span><span class="${s.undone ? 'undone' : ''}">${esc(what)}${s.undone ? ' (undone)' : ''}</span></li>`;
+  }).join('') : '<li><p class="empty">No scans yet for this delivery.</p></li>';
+}
+$('delivery-select').addEventListener('change', e => { state.deliveryId = e.target.value; pref('delivery', state.deliveryId); render(); });
+$('undo-btn').addEventListener('click', () => {
+  const d = currentDelivery(); if (!d) return;
+  const r = Core.undoLast(d);
+  if (!r.undone) return;
+  replaceDelivery(r.delivery);
+  const p = productById(r.undone.productId);
+  show('idle', 'Scan undone', `Removed one ${p ? p.name : 'item'} from the count.`, r.undone.code);
+});
+$('delete-delivery-btn').addEventListener('click', () => { $('delete-delivery-confirm').hidden = false; });
+$('delete-delivery-no').addEventListener('click', () => { $('delete-delivery-confirm').hidden = true; });
+$('delete-delivery-yes').addEventListener('click', () => {
+  const d = currentDelivery(); $('delete-delivery-confirm').hidden = true;
+  if (!d) return;
+  state.deliveries = state.deliveries.filter(x => x.id !== d.id);
+  state.deliveryId = null;
+  persist('deliveries', d.id, null);
+  render();
+});
+
+/* new delivery */
+function lineRow(productId, qty) {
+  const opts = state.products.map(p => `<option value="${esc(p.id)}"${p.id === productId ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
+  const div = document.createElement('div'); div.className = 'row';
+  div.innerHTML = `<select aria-label="Product">${opts}</select><input type="number" min="1" max="9999" step="1" value="${qty || 1}" aria-label="Expected quantity">
+    <button class="btn ghost" type="button" aria-label="Remove item">Remove</button>`;
+  div.querySelector('button').addEventListener('click', () => div.remove());
+  return div;
+}
+$('new-delivery-btn').addEventListener('click', () => {
+  if (!state.products.length) { show('bad', 'No products yet', 'Add products on the Products tab first.'); return; }
+  $('nd-name').value = 'Delivery ' + new Date().toLocaleDateString([], {month: 'short', day: 'numeric'});
+  $('nd-lines').innerHTML = ''; $('nd-lines').append(lineRow(state.products[0].id, 1));
+  $('nd-error').hidden = true; $('new-delivery').hidden = false; $('nd-name').focus();
+});
+$('nd-add').addEventListener('click', () => $('nd-lines').append(lineRow(null, 1)));
+$('nd-cancel').addEventListener('click', () => { $('new-delivery').hidden = true; });
+$('new-delivery').addEventListener('submit', e => {
+  e.preventDefault();
+  const merged = new Map();
+  for (const row of $('nd-lines').children) {
+    const id = row.querySelector('select').value, qty = Number(row.querySelector('input').value);
+    if (!Number.isInteger(qty) || qty < 1) { $('nd-error').textContent = 'Each quantity must be a whole number of 1 or more.'; $('nd-error').hidden = false; return; }
+    merged.set(id, (merged.get(id) || 0) + qty);
+  }
+  if (!merged.size) { $('nd-error').textContent = 'Add at least one item.'; $('nd-error').hidden = false; return; }
+  const d = {id: uid('d'), name: $('nd-name').value.trim() || 'Delivery', createdAt: Date.now(),
+    lines: [...merged].map(([productId, expected]) => ({productId, expected, counted: 0})), scans: []};
+  state.deliveries = state.deliveries.concat([d]); state.deliveryId = d.id; pref('delivery', d.id);
+  persist('deliveries', d.id, bodyOf(d));
+  $('new-delivery').hidden = true;
+  show('idle', 'Ready to scan', `Scan the items for “${d.name}”.`);
+  render(); if (finePointer) $('scan-input').focus();
+});
+
+/* ---------- products view ---------- */
+let confirmingProduct = null;
+function renderProducts() {
+  $('photo-note').textContent = assets ? 'Tap Add photo to photograph a product. The photo shows up when it is scanned.' :
+    state.mode === 'db' ? '' : 'Products added here are kept in this browser only.';
+  $('product-list').innerHTML = state.products.length ? state.products.slice().sort((a, b) => a.name.localeCompare(b.name)).map(p => `
+    <li class="item"><div class="thumb">${thumb(p)}</div>
+      <div style="min-width:0"><div class="name">${esc(p.name)}</div>
+        <div class="meta"><span class="bc">${esc(groupCode(p.barcode))}</span> · ${esc(p.unit)}${p.sku ? ' · ' + esc(p.sku) : ''}</div>
+        ${confirmingProduct === p.id ? `<div class="confirm" style="margin-top:8px"><span>Delete ${esc(p.name)}?</span>
+          <button class="btn danger" type="button" data-act="del-yes" data-id="${esc(p.id)}">Delete</button>
+          <button class="btn ghost" type="button" data-act="del-no">Keep</button></div>` : ''}
+      </div>
+      <div class="prod-actions">${assets ? `<button class="btn ghost" type="button" data-act="photo" data-id="${esc(p.id)}">${p.photoId ? 'New photo' : 'Add photo'}</button>` : ''}
+        <button class="btn danger" type="button" data-act="del" data-id="${esc(p.id)}">Delete</button></div>
+    </li>`).join('') : '<li><p class="empty">No products yet. Add the first one above by scanning its barcode.</p></li>';
+}
+let photoFor = null;
+$('product-list').addEventListener('click', e => {
+  const b = e.target.closest('button[data-act]'); if (!b) return;
+  const act = b.dataset.act, id = b.dataset.id;
+  if (act === 'del') { confirmingProduct = id; renderProducts(); }
+  else if (act === 'del-no') { confirmingProduct = null; renderProducts(); }
+  else if (act === 'del-yes') {
+    confirmingProduct = null;
+    state.products = state.products.filter(p => p.id !== id);
+    persist('products', id, null); render();
+  } else if (act === 'photo') { photoFor = id; $('photo-file').value = ''; $('photo-file').click(); }
+});
+$('photo-file').addEventListener('change', async () => {
+  const file = $('photo-file').files[0]; const p = productById(photoFor);
+  if (!file || !p || !assets) return;
+  $('photo-note').textContent = 'Uploading photo…';
+  try {
+    const img = await loadImage(file);
+    const canvas = scaled(img, 640);
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', .82));
+    const up = await assets.upload(blob);
+    const updated = Object.assign({}, p, {photoId: up.id});
+    state.products = state.products.map(x => x.id === p.id ? updated : x);
+    persist('products', p.id, bodyOf(updated)); render();
+  } catch (_e) {
+    render(); $('photo-note').textContent = 'The photo could not be saved. Check your connection and try again.';
+  }
+});
+$('product-form').addEventListener('submit', e => {
+  e.preventDefault();
+  const r = Core.validateNewProduct(state.products, {barcode: $('pf-barcode').value, name: $('pf-name').value, sku: $('pf-sku').value, unit: $('pf-unit').value});
+  if (!r.ok) { $('pf-error').textContent = r.error; $('pf-error').hidden = false; return; }
+  const p = Object.assign({id: uid('p'), createdAt: Date.now()}, r.product);
+  state.products = state.products.concat([p]);
+  persist('products', p.id, bodyOf(p));
+  $('product-form').reset(); $('pf-error').hidden = true;
+  render(); $('pf-barcode').focus();
+});
+
+/* ---------- tabs and render ---------- */
+function setTab(tab) {
+  state.tab = tab; pref('tab', tab);
+  for (const t of ['count', 'check', 'products']) $('tab-' + t).setAttribute('aria-selected', String(t === tab));
+  $('scan-area').hidden = tab === 'products';
+  $('view-count').hidden = tab !== 'count';
+  $('view-products').hidden = tab !== 'products';
+  if (tab === 'check') show('idle', 'Check an item', 'Scan any product to see what it is. Nothing is counted.');
+  if (tab === 'count') show('idle', 'Ready to scan', currentDelivery() ? `Scan the items for “${currentDelivery().name}”.` : 'Create a delivery to start counting.');
+  if (finePointer && tab !== 'products') $('scan-input').focus();
+}
+for (const t of ['count', 'check', 'products']) $('tab-' + t).addEventListener('click', () => setTab(t));
+$('sound-toggle').addEventListener('click', () => {
+  state.sound = !state.sound; pref('sound', state.sound ? '1' : '0');
+  $('sound-toggle').textContent = state.sound ? 'Sound on' : 'Sound off';
+  $('sound-toggle').setAttribute('aria-pressed', String(state.sound));
+});
+function render() { renderCount(); renderProducts(); setSaveStatus(); }
+
+/* ---------- boot ---------- */
+function fromSnapshot(snap, collection, current) {
+  const pending = pendingPaths();
+  const local = new Map(current.map(x => [x.id, x]));
+  const out = snap.docs.map(doc => pending.has(collection + '/' + doc.id) && local.has(doc.id) ? local.get(doc.id)
+    : Object.assign({id: doc.id}, doc.data()));
+  for (const [id, x] of local) if (pending.has(collection + '/' + id) && !out.some(o => o.id === id) && queues.get(collection + '/' + id).next !== null) out.push(x);
+  return out;
+}
+function normalizeDelivery(d) {
+  return Object.assign({}, d, {lines: Array.isArray(d.lines) ? d.lines : [], scans: Array.isArray(d.scans) ? d.scans : []});
+}
+async function boot() {
+  state.sound = pref('sound') !== '0';
+  $('sound-toggle').textContent = state.sound ? 'Sound on' : 'Sound off';
+  state.deliveryId = pref('delivery');
+  const startTab = ['count', 'check', 'products'].includes(pref('tab')) ? pref('tab') : 'count';
+  setTab(startTab);
+  if (window.claude && typeof window.claude.use === 'function') {
+    try { db = await window.claude.use('db'); } catch (_e) { db = null; }
+    try { assets = await window.claude.use('assets'); } catch (_e) { assets = null; }
+  }
+  if (db) {
+    state.mode = 'db';
+    let gotProducts = false, gotDeliveries = false;
+    const ready = () => { if (gotProducts && gotDeliveries && !state.ready) { state.ready = true; setTab(state.tab); } render(); };
+    db.collection('products').onSnapshot(snap => { state.products = fromSnapshot(snap, 'products', state.products); gotProducts = true; ready(); },
+      () => { saveFailed = true; setSaveStatus(); });
+    db.collection('deliveries').onSnapshot(snap => { state.deliveries = fromSnapshot(snap, 'deliveries', state.deliveries).map(normalizeDelivery); gotDeliveries = true; ready(); },
+      () => { saveFailed = true; setSaveStatus(); });
+  } else {
+    const v = loadLocal();
+    state.products = v.products; state.deliveries = v.deliveries.map(normalizeDelivery);
+    state.ready = true; render();
+  }
+}
+render();
+boot();
+})();
+</script>
