@@ -179,7 +179,7 @@
   function stopOf(run, locationId) {
     const saved = (run.stops || {})[locationId] || {};
     return {lines: Array.isArray(saved.lines) ? saved.lines : [], scans: Array.isArray(saved.scans) ? saved.scans : [],
-      status: saved.status || 'open', deniedReason: saved.deniedReason || ''};
+      status: saved.status || 'open', deniedReason: saved.deniedReason || '', short: Array.isArray(saved.short) ? saved.short : []};
   }
   function pickedAt(stop, productId) {
     const line = stop.lines.find(l => l.productId === productId);
@@ -218,13 +218,25 @@
     const stops = Object.assign({}, run.stops, {[locationId]: Object.assign({}, stopOf(run, locationId), patch)});
     return Object.assign({}, run, {stops});
   }
+  // Items still short at this location: everything needed here that was not fully picked.
+  function shortLines(view) {
+    return view.lines.filter(l => l.expected > 0 && l.counted < l.expected);
+  }
   // "Done from location": freezes what was picked into a purchase order waiting for a manager.
-  function finishStop(run, locationId, products, at, by) {
+  // Every short item needs a reason (reasons: {productId: text}); otherwise nothing is finished.
+  function finishStop(run, locationId, products, at, by, reasons) {
     const location = LOCATIONS.find(l => l.id === locationId);
     const view = stopView(run, locationId);
     if (!location || view.status !== 'open') return {run, po: null, error: 'This location is already finished.'};
+    const given = reasons || {};
+    const short = shortLines(view);
+    const missing = short.filter(l => !String(given[l.productId] || '').trim()).map(l => l.productId);
+    if (missing.length) return {run, po: null, error: 'incomplete', missing};
+    const nameOf = id => (products.find(p => p.id === id) || {}).name || 'Removed product';
+    const shortOut = short.map(l => ({productId: l.productId, name: nameOf(l.productId), picked: l.counted,
+      short: l.expected - l.counted, reason: String(given[l.productId]).trim()}));
     const picked = view.lines.filter(l => l.counted > 0);
-    if (!picked.length) return {run: setStop(run, locationId, {status: 'skipped', deniedReason: ''}), po: null};
+    if (!picked.length) return {run: setStop(run, locationId, {status: 'skipped', deniedReason: '', short: shortOut}), po: null};
     const pos = Array.isArray(run.pos) ? run.pos : [];
     const revision = pos.filter(p => p.locationId === locationId).length + 1;
     const lines = picked.map(l => {
@@ -233,8 +245,8 @@
     });
     const po = {number: `PO-${run.ref || 'RUN'}-${location.code}-${revision}`, locationId, locationName: location.name,
       rank: LOCATIONS.indexOf(location) + 1, revision, createdAt: at, by: by || '', lines,
-      totalUnits: lines.reduce((s, l) => s + l.qty, 0), status: 'pending', decidedAt: null, reason: ''};
-    const next = setStop(run, locationId, {status: 'pending', deniedReason: ''});
+      totalUnits: lines.reduce((s, l) => s + l.qty, 0), short: shortOut, status: 'pending', decidedAt: null, reason: ''};
+    const next = setStop(run, locationId, {status: 'pending', deniedReason: '', short: shortOut});
     return {run: Object.assign({}, next, {pos: pos.concat([po])}), po};
   }
   // Manager decision on a pending PO. Deny sends the location back to shopping with the reason shown.
@@ -254,6 +266,6 @@
     return LOCATIONS.find(l => stopOf(run, l.id).status === 'open') || null;
   }
 
-  return {LOCATIONS, stopOf, boughtElsewhere, runTotals, stopView, saveStop, finishStop, decidePO, nextLocation,
+  return {LOCATIONS, stopOf, boughtElsewhere, runTotals, stopView, saveStop, shortLines, finishStop, decidePO, nextLocation,
     parse, checkDigitValid, matchKey, findProduct, lookup, applyScan, adjust, isValidated, undoLast, totals, validateNewProduct};
 });

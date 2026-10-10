@@ -157,7 +157,19 @@ li:first-child > .item-btn { border-top: 0; }
 .step-count strong { display: block; font: 700 2.8rem/1 var(--display); }
 .step-count span { color: var(--muted); font-size: .9rem; }
 body.focusing #view-count, body.focusing #view-purchase, body.focusing #scan-hint, body.focusing nav.tabs { display: none; }
-nav.tabs { grid-template-columns: repeat(4, 1fr); }
+nav.tabs { grid-template-columns: repeat(3, 1fr); }
+.short-panel { display: grid; gap: 10px; }
+.advice { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--idle-bg); font-weight: 600; }
+ul.short-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.short-item { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+.short-item.missing { border-color: var(--bad); }
+.short-item .name { font-weight: 600; overflow-wrap: anywhere; }
+.short-item .meta { font-size: .82rem; color: var(--muted); }
+.short-item select, .short-item input { width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
+details.settings { border-top: 1px solid var(--line); padding-top: 10px; }
+details.settings summary { cursor: pointer; font-weight: 600; color: var(--muted); }
+details.settings form { display: grid; gap: 10px; margin-top: 10px; }
+.po-doc .short-h { font: 700 .75rem var(--body); letter-spacing: .06em; text-transform: uppercase; color: var(--bad); margin: 4px 0 0; }
 nav.tabs button { font-size: .9rem; padding-inline: 2px; }
 
 /* Purchasing */
@@ -216,7 +228,6 @@ body.scanning .top, body.scanning #scan-hint { display: none; }
     <button type="button" role="tab" id="tab-count" aria-selected="true">Receive</button>
     <button type="button" role="tab" id="tab-purchase" aria-selected="false">Purchase</button>
     <button type="button" role="tab" id="tab-check" aria-selected="false">Check</button>
-    <button type="button" role="tab" id="tab-products" aria-selected="false">Products</button>
   </nav>
 
   <section id="focus" class="panel focus" hidden aria-label="Selected item">
@@ -312,6 +323,15 @@ body.scanning .top, body.scanning #scan-hint { display: none; }
         <button class="btn danger" type="button" id="delete-run-yes">Delete</button>
         <button class="btn ghost" type="button" id="delete-run-no">Keep</button>
       </div>
+      <details class="settings" id="settings">
+        <summary>PO settings</summary>
+        <form id="settings-form" autocomplete="off">
+          <label class="field">Manager email (separate several with commas)<input id="set-emails" maxlength="400" placeholder="manager@example.com"></label>
+          <label class="field">Buyer name shown on POs<input id="set-name" maxlength="60"></label>
+          <p class="error-text" id="set-error" hidden></p>
+          <div class="row"><button class="btn" type="submit">Save settings</button><span class="notice" id="set-status"></span></div>
+        </form>
+      </details>
     </div>
 
     <div class="panel" id="stop-panel" hidden>
@@ -324,6 +344,16 @@ body.scanning .top, body.scanning #scan-hint { display: none; }
       <ul class="lines" id="stop-lines"></ul>
       <button class="btn big" type="button" id="stop-done">Done from location</button>
       <p class="hint" id="stop-hint"></p>
+      <div class="short-panel" id="short-panel" hidden>
+        <p class="denied-note" id="short-error"></p>
+        <p class="advice" id="short-advice"></p>
+        <ul class="short-list" id="short-list"></ul>
+        <p class="error-text" id="short-missing" hidden></p>
+        <div class="row">
+          <button class="btn" type="button" id="short-confirm">Finish with these reasons</button>
+          <button class="btn ghost" type="button" id="short-cancel">Keep scanning</button>
+        </div>
+      </div>
     </div>
 
     <div class="panel po" id="po-panel" hidden>
@@ -333,13 +363,13 @@ body.scanning .top, body.scanning #scan-hint { display: none; }
       </div>
       <article class="po-doc" id="po-doc"></article>
       <div class="row">
-        <button class="btn" type="button" id="po-email">Email to manager</button>
-        <button class="btn ghost" type="button" id="po-copy">Copy PO</button>
+        <button class="btn" type="button" id="po-email">Email PDF to manager</button>
+        <button class="btn ghost" type="button" id="po-pdf">Save PDF</button>
       </div>
       <p class="notice" id="po-email-note"></p>
       <div class="manager" id="po-manager">
         <h3>Manager decision</h3>
-        <label class="field">Manager PIN<input id="po-pin" type="password" inputmode="numeric" autocomplete="off" maxlength="8"></label>
+        <label class="field">Manager PIN<input id="po-pin" type="password" inputmode="numeric" autocomplete="off" maxlength="4"></label>
         <label class="field">Reason (needed to deny)<input id="po-reason" maxlength="300"></label>
         <div class="row"><button class="btn approve" type="button" id="po-approve">Approve</button><button class="btn danger" type="button" id="po-deny">Deny</button></div>
         <p class="error-text" id="po-error" hidden></p>
@@ -357,45 +387,12 @@ body.scanning .top, body.scanning #scan-hint { display: none; }
     <div class="row"><button class="btn" type="submit" id="nd-submit">Create delivery</button><button class="btn ghost" type="button" id="nd-cancel">Cancel</button></div>
   </form>
 
-  <!-- Products -->
-  <section id="view-products" class="wrap" style="padding:0" hidden>
-    <form class="panel" id="product-form" autocomplete="off">
-      <h3>Add a product</h3>
-      <label class="field">Barcode
-        <span class="scanbar"><input id="pf-barcode" class="barcode-input" inputmode="numeric" placeholder="Scan, type or use camera" required>
-        <button class="btn cam" type="button" id="pf-cam">Scan</button></span>
-      </label>
-      <label class="field">Product name<input id="pf-name" maxlength="120" required></label>
-      <div class="row">
-        <label class="field" style="flex:1 1 9rem">SKU (optional)<input id="pf-sku" maxlength="60"></label>
-        <label class="field" style="flex:1 1 9rem">One scan counts as<input id="pf-unit" maxlength="60" placeholder="1 each"></label>
-      </div>
-      <p class="error-text" id="pf-error" hidden></p>
-      <div class="row"><button class="btn" type="submit">Add product</button></div>
-    </form>
-    <div class="panel">
-      <h3>Product list</h3>
-      <p class="notice" id="photo-note"></p>
-      <ul class="products" id="product-list"></ul>
-    </div>
-    <form class="panel" id="settings-form" autocomplete="off">
-      <h3>Purchase order settings</h3>
-      <label class="field">Manager email (separate several with commas)<input id="set-emails" maxlength="400" placeholder="manager@example.com"></label>
-      <label class="field">Buyer name shown on POs<input id="set-name" maxlength="60"></label>
-      <label class="field" id="set-current-wrap" hidden>Current manager PIN<input id="set-current" type="password" inputmode="numeric" maxlength="8"></label>
-      <label class="field"><span id="set-pin-label">Manager PIN (4 to 8 digits)</span><input id="set-pin" type="password" inputmode="numeric" maxlength="8"></label>
-      <p class="notice">Practice PIN for approving POs on this phone. Real manager sign-in comes with the staff website.</p>
-      <p class="error-text" id="set-error" hidden></p>
-      <div class="row"><button class="btn" type="submit">Save settings</button><span class="notice" id="set-status"></span></div>
-    </form>
-  </section>
-
   <p class="notice">Practice tool. Counting here does not change stock in Finale or records in Method or QuickBooks.</p>
   <input type="file" id="cam-file" accept="image/*" capture="environment" hidden>
-  <input type="file" id="photo-file" accept="image/*" capture="environment" hidden>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="scanner-core.js"></script>
 <script>
 'use strict';
@@ -418,10 +415,13 @@ const EXAMPLE_DELIVERY = {id: 'example-delivery', name: 'Example delivery (pract
   scans: []};
 const EXAMPLE_RUN = {id: 'example-run', ref: 'EX', name: 'Example purchase list (practice)', createdAt: 0,
   lines: [{productId: 'forest-mint', needed: 4}, {productId: 'wintergreen', needed: 3}, {productId: 'addyz-xr', needed: 2}], stops: {}, pos: []};
-const DEFAULT_SETTINGS = {emails: '', name: '', pinHash: ''};
+const DEFAULT_SETTINGS = {emails: '', name: ''};
+const MANAGER_PIN = '0000';   // practice PIN set by the owner; real manager sign-in comes with the staff website
+const SHORT_REASONS = ['Out of stock (staff confirmed)', 'Only part in stock (staff confirmed)',
+  'Could not find it (staff confirmed none)', 'Damaged or expired', 'Other'];
 
 const state = {products: [], deliveries: [], runs: [], settings: Object.assign({}, DEFAULT_SETTINGS), ready: false, mode: 'local',
-  tab: 'count', deliveryId: null, runId: null, stopId: null, poNumber: null, focusId: null, sound: true, last: null};
+  tab: 'count', deliveryId: null, runId: null, stopId: null, poNumber: null, focusId: null, shortOpen: false, sound: true, last: null};
 let db = null, assets = null;
 
 /* ---------- per-viewer conveniences ---------- */
@@ -634,18 +634,12 @@ async function openCamera(target) {
   }
 }
 $('scan-cam').addEventListener('click', () => openCamera('scan'));
-$('pf-cam').addEventListener('click', () => openCamera('product'));
 $('cam-file').addEventListener('change', async () => {
   const file = $('cam-file').files[0];
   if (!file) return;
-  if (camTarget === 'scan') show('busy', 'Reading barcode…', 'Hold on a moment.');
+  show('busy', 'Reading barcode…', 'Hold on a moment.');
   let code = null;
   try { code = await decodeImage(file); } catch (_e) { code = null; }
-  if (camTarget === 'product') {
-    if (code) { $('pf-barcode').value = code; $('pf-error').hidden = true; }
-    else { $('pf-error').textContent = 'No barcode found in that photo. Fill the frame with the barcode, keep it sharp, and try again.'; $('pf-error').hidden = false; }
-    return;
-  }
   if (code) handleScan(code);
   else { show('bad', 'No barcode found', 'Fill the photo with the barcode, keep it flat and in focus, and avoid glare. Then try again.'); tone([220], 'square', .16); }
 });
@@ -857,10 +851,6 @@ function onLiveRead(code) {
   live.candidateAt = now;
   if (live.hits < LIVE.confirmReads) return;
   live.hits = 0; live.held.set(code, now);
-  if (live.target === 'product') {
-    $('pf-barcode').value = code; $('pf-error').hidden = true; stopLive(); tone([1320], 'sine', .1); $('pf-name').focus();
-    return;
-  }
   state.last = null;
   handleScan(code);
   const r = $('reticle'); const good = state.last && state.last.accepted;
@@ -883,7 +873,7 @@ function renderCount() {
   $('delete-delivery-btn').disabled = !d;
   if (!d) {
     $('progress').innerHTML = '';
-    $('lines').innerHTML = `<li><p class="empty">${state.products.length ? 'Tap New delivery and list what you expect to receive.' : 'Add your products first on the Products tab, then create a delivery.'}</p></li>`;
+    $('lines').innerHTML = `<li><p class="empty">${state.products.length ? 'Tap New delivery and list what you expect to receive.' : 'No products are set up yet.'}</p></li>`;
     $('log').innerHTML = '<li><p class="empty">Scans will appear here.</p></li>';
     return;
   }
@@ -1020,7 +1010,7 @@ function lineRow(productId, qty) {
 // One form for both a new delivery (Receive) and a new purchase list (Purchase).
 let formMode = 'delivery';
 function openNewForm(mode) {
-  if (!state.products.length) { show('bad', 'No products yet', 'Add products on the Products tab first.'); return; }
+  if (!state.products.length) { show('bad', 'No products yet', 'No products are set up yet.'); return; }
   formMode = mode;
   const day = new Date().toLocaleDateString([], {month: 'short', day: 'numeric'});
   $('nd-title').textContent = mode === 'run' ? 'New purchase list' : 'New delivery';
@@ -1100,7 +1090,7 @@ function renderPurchase() {
   $('po-panel').hidden = !po;
   if (!run) {
     $('run-progress').innerHTML = '';
-    $('locations').innerHTML = `<li><p class="empty">${state.products.length ? 'Tap New list and enter what you need to buy.' : 'Add your products first on the Products tab.'}</p></li>`;
+    $('locations').innerHTML = `<li><p class="empty">${state.products.length ? 'Tap New list and enter what you need to buy.' : 'No products are set up yet.'}</p></li>`;
     return;
   }
   const t = Core.runTotals(run);
@@ -1138,35 +1128,143 @@ function renderStop(run) {
   const ordered = lines.filter(l => l.counted < l.expected).concat(lines.filter(l => l.counted >= l.expected));
   $('stop-lines').innerHTML = lineButtons(ordered, 'Nothing is needed here. Everything on the list is covered.');
   const picked = view.lines.reduce((s, l) => s + l.counted, 0);
-  $('stop-done').hidden = view.status !== 'open';
-  $('stop-hint').textContent = view.status !== 'open' ? '' : picked
-    ? `${units(picked)} picked here. Tap Done to make this location’s purchase order.`
-    : 'Tap an item to scan what you buy here. If nothing is available, tap Done to move on.';
+  const short = Core.shortLines(view);
+  if (view.status !== 'open' || !short.length) state.shortOpen = false;
+  $('stop-done').hidden = view.status !== 'open' || state.shortOpen;
+  $('stop-hint').textContent = view.status !== 'open' || state.shortOpen ? '' : !short.length
+    ? `Everything needed here is picked (${units(picked)}). Tap Done to make this location’s purchase order.`
+    : `${short.length} item${short.length === 1 ? ' is' : 's are'} still short. Scan them, or tap Done to give a reason for each.`;
+  renderShort(short, loc);
 }
+
+/* Short items: Done is blocked until every short item has a reason. */
+const shortDraft = {};   // productId -> {choice, note}, kept while the buyer goes back to scanning
+let shortKey = '';
+function renderShort(short, loc) {
+  $('short-panel').hidden = !state.shortOpen;
+  if (!state.shortOpen) { shortKey = ''; return; }
+  $('short-error').textContent = `Not finished: ${short.length} item${short.length === 1 ? ' is' : 's are'} still short at ${loc.name}. Double-check the shelves, then give a reason for each one.`;
+  $('short-advice').textContent = `Ask the ${loc.name} staff whether these items are in stock before you finish.`;
+  const key = short.map(l => `${l.productId}:${l.counted}/${l.expected}`).join('|');
+  if (key === shortKey) return;   // keep what the buyer is typing
+  shortKey = key;
+  $('short-list').innerHTML = short.map(l => {
+    const p = productById(l.productId), draft = shortDraft[l.productId] || {choice: '', note: ''};
+    const name = p ? p.name : 'Removed product';
+    return `<li class="short-item" data-id="${esc(l.productId)}">
+      <div class="name">${esc(name)}</div>
+      <div class="meta">Picked ${l.counted} of ${l.expected} · ${l.expected - l.counted} short</div>
+      <select data-role="choice" aria-label="Reason ${esc(name)} is short">
+        <option value="">Choose a reason</option>
+        ${SHORT_REASONS.map(r => `<option${r === draft.choice ? ' selected' : ''}>${esc(r)}</option>`).join('')}
+      </select>
+      <input data-role="note" maxlength="200" value="${esc(draft.note)}" placeholder="Note (needed for Other)" aria-label="Note for ${esc(name)}">
+    </li>`;
+  }).join('');
+  $('short-missing').hidden = true;
+}
+function saveShortDraft(e) {
+  const li = e.target.closest('.short-item'); if (!li || !e.target.dataset.role) return;
+  const d = shortDraft[li.dataset.id] || (shortDraft[li.dataset.id] = {choice: '', note: ''});
+  d[e.target.dataset.role] = e.target.value;
+  li.classList.remove('missing');
+}
+$('short-list').addEventListener('input', saveShortDraft);
+$('short-list').addEventListener('change', saveShortDraft);
+function finishLocation(reasons) {
+  const run = currentRun(); if (!run || !state.stopId) return;
+  const loc = locationById(state.stopId);
+  const out = Core.finishStop(run, state.stopId, state.products, Date.now(), state.settings.name, reasons);
+  if (out.error === 'incomplete') { openShort(); return; }
+  if (out.error) { show('bad', 'Already finished', out.error); return; }
+  state.shortOpen = false;
+  for (const id of Object.keys(shortDraft)) delete shortDraft[id];
+  replaceRun(out.run);
+  if (out.po) {
+    state.poNumber = out.po.number;
+    show('good', `${out.po.number} ready`, `${units(out.po.totalUnits)} from ${loc.name}. Email the PDF to the manager for approval.`);
+  } else {
+    state.stopId = null;
+    const next = Core.nextLocation(out.run);
+    show('idle', `Nothing bought at ${loc.name}`, next ? `Everything still needed carries over to ${next.name}.` : 'No locations left to visit.');
+  }
+  render(); layout(); window.scrollTo({top: 0});
+}
+function openShort() {
+  const loc = locationById(state.stopId);
+  state.shortOpen = true; render();
+  const n = Core.shortLines(Core.stopView(currentRun(), state.stopId)).length;
+  show('bad', 'Not finished', `${n} item${n === 1 ? ' is' : 's are'} still short at ${loc.name}. Ask the staff if they are in stock.`);
+  tone([220, 180], 'square', .16); buzz([200, 80, 200]);
+  $('short-panel').scrollIntoView({block: 'start'});
+}
+$('run-select').addEventListener('change', e => { closeFocusQuiet(); state.shortOpen = false; state.runId = e.target.value; state.stopId = null; state.poNumber = null; pref('run', state.runId); render(); });
+$('locations').addEventListener('click', e => {
+  const b = e.target.closest('.item-btn[data-loc]'); if (!b) return;
+  const run = currentRun(), stop = Core.stopOf(run, b.dataset.loc), last = latestPO(run, b.dataset.loc);
+  state.stopId = b.dataset.loc; state.shortOpen = false;
+  state.poNumber = (stop.status === 'pending' || stop.status === 'approved') && last ? last.number : null;
+  render(); layout(); window.scrollTo({top: 0});
+  const loc = locationById(state.stopId);
+  if (!state.poNumber) show('idle', `At ${loc.name}`, 'Tap an item, then scan it to confirm it is right.');
+});
+$('stop-lines').addEventListener('click', e => { const b = e.target.closest('.item-btn'); if (b && !b.disabled) { state.shortOpen = false; openFocus(b.dataset.id); } });
+$('stop-back').addEventListener('click', () => { closeFocusQuiet(); state.shortOpen = false; state.stopId = null; render(); layout(); });
+$('po-back').addEventListener('click', () => { state.stopId = null; state.poNumber = null; render(); layout(); });
+$('stop-done').addEventListener('click', () => {
+  if (!currentRun() || !state.stopId) return;
+  closeFocusQuiet();
+  const short = Core.shortLines(Core.stopView(currentRun(), state.stopId));
+  if (short.length) openShort(); else finishLocation({});
+});
+$('short-cancel').addEventListener('click', () => { state.shortOpen = false; render(); window.scrollTo({top: 0}); });
+$('short-confirm').addEventListener('click', () => {
+  const reasons = {}, missing = [];
+  for (const li of $('short-list').querySelectorAll('.short-item')) {
+    const choice = li.querySelector('[data-role=choice]').value, note = li.querySelector('[data-role=note]').value.trim();
+    if (!choice || (choice === 'Other' && !note)) { missing.push(li); li.classList.add('missing'); continue; }
+    reasons[li.dataset.id] = choice === 'Other' ? note : note ? `${choice}: ${note}` : choice;
+  }
+  if (missing.length) {
+    $('short-missing').textContent = `Give a reason for every short item (${missing.length} left). “Other” needs a note.`;
+    $('short-missing').hidden = false; tone([220], 'square', .12);
+    missing[0].scrollIntoView({block: 'center'});
+    return;
+  }
+  finishLocation(reasons);
+});
+
 function poText(run, po) {
   const when = new Date(po.createdAt).toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'});
+  const short = po.short || [];
   return [`Purchase order ${po.number}`, `Location: ${po.locationName} (stop ${po.rank} of ${Core.LOCATIONS.length})`,
     `Purchase list: ${run.name}`, `Prepared: ${when}${po.by ? ' by ' + po.by : ''}`, '',
     ...po.lines.map(l => `- ${l.qty} x ${l.name} (${l.unit})${l.sku ? ', SKU ' + l.sku : ''}${l.barcode ? ', barcode ' + l.barcode : ''}`),
-    '', `Total units: ${po.totalUnits}`, 'Unit costs come from the supplier’s paper invoice.', '',
+    '', `Total units: ${po.totalUnits}`,
+    ...(short.length ? ['', 'Not bought here:', ...short.map(s => `- ${s.short} x ${s.name}: ${s.reason}`)] : []),
+    '', 'Unit costs come from the supplier’s paper invoice.', '',
     'Please approve or deny this PO in AY Scan Station: Purchase tab, ' + po.locationName + '.'].join('\n');
 }
 function renderPO(run, po) {
   const when = new Date(po.createdAt).toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'});
   const status = {pending: ['wait', 'Waiting for manager'], approved: ['done', 'Approved'], denied: ['bad', 'Denied']}[po.status];
+  const short = po.short || [];
   $('po-chip').className = 'chip ' + status[0]; $('po-chip').textContent = status[1];
   $('po-doc').innerHTML = `<header><div><div class="po-kind">Purchase order${po.revision > 1 ? ` · revision ${po.revision}` : ''}</div><div class="po-no">${esc(po.number)}</div></div>
       <div class="po-kind">Practice PO</div></header>
     <dl><dt>Location</dt><dd>${esc(po.locationName)} (stop ${po.rank} of ${Core.LOCATIONS.length})</dd>
       <dt>Purchase list</dt><dd>${esc(run.name)}</dd><dt>Prepared</dt><dd>${esc(when)}${po.by ? ' by ' + esc(po.by) : ''}</dd>
       ${po.status !== 'pending' ? `<dt>Decision</dt><dd>${esc(status[1])} ${esc(new Date(po.decidedAt).toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'}))}${po.reason ? ': ' + esc(po.reason) : ''}</dd>` : ''}</dl>
-    <div class="po-table-wrap"><table><thead><tr><th>Item</th><th class="num">Qty</th></tr></thead><tbody>
-      ${po.lines.map(l => `<tr><td>${esc(l.name)}<div class="bc">${esc(groupCode(l.barcode))} · ${esc(l.unit)}${l.sku ? ' · ' + esc(l.sku) : ''}</div></td><td class="num">${l.qty}</td></tr>`).join('')}
-    </tbody><tfoot><tr><td>Total units</td><td class="num">${po.totalUnits}</td></tr></tfoot></table></div>
+    <div class="po-table-wrap"><table><thead><tr><th>#</th><th>Item</th><th class="num">Qty</th></tr></thead><tbody>
+      ${po.lines.map((l, i) => `<tr><td>${i + 1}</td><td>${esc(l.name)}<div class="bc">${esc(groupCode(l.barcode))} · ${esc(l.unit)}${l.sku ? ' · ' + esc(l.sku) : ''}</div></td><td class="num">${l.qty}</td></tr>`).join('')}
+    </tbody><tfoot><tr><td></td><td>Total units</td><td class="num">${po.totalUnits}</td></tr></tfoot></table></div>
+    ${short.length ? `<p class="short-h">Not bought here</p><div class="po-table-wrap"><table><thead><tr><th>Item</th><th class="num">Short</th></tr></thead><tbody>
+      ${short.map(s => `<tr><td>${esc(s.name)}<div class="bc">${esc(s.reason)}</div></td><td class="num">${s.short}</td></tr>`).join('')}</tbody></table></div>` : ''}
     <p class="po-foot">Unit costs come from the supplier’s paper invoice and are added at invoice review.</p>`;
-  $('po-email-note').textContent = !state.settings.emails ? 'Add the manager’s email in Products → Purchase order settings.'
-    : po.emailedAt ? `Email opened ${new Date(po.emailedAt).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})} for ${state.settings.emails}.`
-    : `Sends to ${state.settings.emails} from your email app.`;
+  $('po-email-note').textContent = po.emailedAt
+    ? `PDF shared ${new Date(po.emailedAt).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}${state.settings.emails ? ' for ' + state.settings.emails : ''}.`
+    : state.settings.emails ? `Choose your email app, then send it to ${state.settings.emails}.`
+    : 'Add the manager’s email under PO settings on the locations screen.';
   $('po-manager').hidden = po.status !== 'pending';
   $('po-email').hidden = po.status !== 'pending';
   const next = Core.nextLocation(run);
@@ -1174,64 +1272,122 @@ function renderPO(run, po) {
   $('po-next').textContent = po.status === 'denied' ? `Fix ${po.locationName} and resend`
     : next ? `Go to ${next.name}` : 'List complete: back to locations';
 }
-$('run-select').addEventListener('change', e => { closeFocusQuiet(); state.runId = e.target.value; state.stopId = null; state.poNumber = null; pref('run', state.runId); render(); });
-$('locations').addEventListener('click', e => {
-  const b = e.target.closest('.item-btn[data-loc]'); if (!b) return;
-  const run = currentRun(), stop = Core.stopOf(run, b.dataset.loc), last = latestPO(run, b.dataset.loc);
-  state.stopId = b.dataset.loc;
-  state.poNumber = (stop.status === 'pending' || stop.status === 'approved') && last ? last.number : null;
-  render(); layout(); window.scrollTo({top: 0});
-  const loc = locationById(state.stopId);
-  if (!state.poNumber) show('idle', `At ${loc.name}`, 'Tap an item, then scan it to confirm it is right.');
-});
-$('stop-lines').addEventListener('click', e => { const b = e.target.closest('.item-btn'); if (b && !b.disabled) openFocus(b.dataset.id); });
-$('stop-back').addEventListener('click', () => { closeFocusQuiet(); state.stopId = null; render(); layout(); });
-$('po-back').addEventListener('click', () => { state.stopId = null; state.poNumber = null; render(); layout(); });
-$('stop-done').addEventListener('click', () => {
-  const run = currentRun(); if (!run || !state.stopId) return;
-  closeFocusQuiet();
-  const loc = locationById(state.stopId);
-  const out = Core.finishStop(run, state.stopId, state.products, Date.now(), state.settings.name);
-  if (out.error) { show('bad', 'Already finished', out.error); return; }
-  replaceRun(out.run);
-  if (out.po) {
-    state.poNumber = out.po.number;
-    show('good', `${out.po.number} ready`, `${units(out.po.totalUnits)} from ${loc.name}. Email it to the manager for approval.`);
-  } else {
-    state.stopId = null;
-    const next = Core.nextLocation(out.run);
-    show('idle', `Nothing bought at ${loc.name}`, next ? `Everything still needed carries over to ${next.name}.` : 'No locations left to visit.');
+
+/* Itemized PDF of a PO (US Letter), built on the phone with jsPDF. */
+function buildPdf(run, po) {
+  const {jsPDF} = window.jspdf;
+  const doc = new jsPDF({unit: 'pt', format: 'letter'});
+  const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 48;
+  const when = d => new Date(d).toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'});
+  const statusText = {pending: 'WAITING FOR MANAGER', approved: 'APPROVED', denied: 'DENIED'}[po.status];
+  let y = M;
+  const ensure = need => { if (y + need > H - M) { doc.addPage(); y = M; } };
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(110);
+  doc.text('AY SUPPLY  ·  PURCHASE ORDER  ·  PRACTICE', M, y);
+  doc.text(statusText, W - M, y, {align: 'right'});
+  y += 28; doc.setFontSize(24); doc.setTextColor(20); doc.text(po.number, M, y);
+  if (po.revision > 1) { doc.setFontSize(10); doc.setTextColor(110); doc.text(`Revision ${po.revision}`, W - M, y, {align: 'right'}); }
+  y += 12; doc.setDrawColor(20); doc.setLineWidth(1.5); doc.line(M, y, W - M, y); y += 20;
+  const meta = [['Location', `${po.locationName} (stop ${po.rank} of ${Core.LOCATIONS.length})`], ['Purchase list', run.name],
+    ['Prepared', when(po.createdAt)], ['Prepared by', po.by || '-'], ['Manager email', state.settings.emails || '-']];
+  if (po.status !== 'pending') meta.push(['Decision', `${statusText.toLowerCase()} ${when(po.decidedAt)}${po.reason ? ': ' + po.reason : ''}`]);
+  doc.setFontSize(10);
+  for (const [k, v] of meta) {
+    const lines = doc.splitTextToSize(String(v), W - M * 2 - 100);
+    doc.setFont('helvetica', 'normal'); doc.setTextColor(110); doc.text(k, M, y);
+    doc.setTextColor(20); doc.text(lines, M + 100, y);
+    y += 14 * lines.length;
   }
-  render(); layout(); window.scrollTo({top: 0});
-});
-$('po-email').addEventListener('click', () => {
-  const run = currentRun(), po = run && (run.pos || []).find(p => p.number === state.poNumber);
-  if (!po) return;
-  const to = state.settings.emails.split(',').map(s => s.trim()).filter(Boolean).join(',');
-  const subject = `Approve ${po.number}: ${po.locationName}, ${units(po.totalUnits)}`;
-  const href = `mailto:${encodeURIComponent(to).replace(/%2C/g, ',').replace(/%40/g, '@')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(poText(run, po))}`;
-  const updated = Object.assign({}, run, {pos: run.pos.map(p => p.number === po.number ? Object.assign({}, p, {emailedAt: Date.now()}) : p)});
-  replaceRun(updated);
-  window.location.href = href;
-});
-$('po-copy').addEventListener('click', async () => {
-  const run = currentRun(), po = run && (run.pos || []).find(p => p.number === state.poNumber);
-  if (!po) return;
-  try { await navigator.clipboard.writeText(poText(run, po)); $('po-email-note').textContent = 'PO copied. Paste it into a message to the manager.'; }
-  catch (_e) { $('po-email-note').textContent = 'Copy is blocked here. Use Email to manager instead.'; }
-});
-async function pinHash(pin) {
-  const data = new TextEncoder().encode('ay-scan-station:' + pin);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
+  y += 14;
+  const cols = [{h: '#', w: 22}, {h: 'Item', w: 170}, {h: 'SKU', w: 120}, {h: 'Barcode', w: 92}, {h: 'Unit', w: 72}, {h: 'Qty', w: 40, right: true}];
+  const header = () => {
+    doc.setFillColor(238, 241, 243); doc.rect(M, y - 12, W - M * 2, 18, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(80);
+    let x = M + 4;
+    for (const c of cols) { if (c.right) doc.text(c.h.toUpperCase(), x + c.w - 8, y, {align: 'right'}); else doc.text(c.h.toUpperCase(), x, y); x += c.w; }
+    y += 18;
+  };
+  header();
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(20);
+  po.lines.forEach((l, i) => {
+    const cells = [String(i + 1), l.name, l.sku || '-', l.barcode || '-', l.unit || '-', String(l.qty)]
+      .map((t, j) => doc.splitTextToSize(t, cols[j].w - 8));
+    const h = Math.max(...cells.map(c => c.length)) * 12;
+    if (y + h > H - M - 40) { doc.addPage(); y = M; header(); doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(20); }
+    let x = M + 4;
+    cells.forEach((c, j) => { if (cols[j].right) doc.text(c, x + cols[j].w - 8, y, {align: 'right'}); else doc.text(c, x, y); x += cols[j].w; });
+    y += h - 6; doc.setDrawColor(215); doc.setLineWidth(.5); doc.line(M, y, W - M, y); y += 16;
+  });
+  ensure(30);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5);
+  doc.text(`Total: ${po.lines.length} item${po.lines.length === 1 ? '' : 's'}, ${units(po.totalUnits)}`, W - M - 4, y, {align: 'right'});
+  y += 28;
+  const short = po.short || [];
+  if (short.length) {
+    ensure(40);
+    doc.setFontSize(10); doc.setTextColor(170, 40, 30); doc.text('NOT BOUGHT AT THIS LOCATION', M, y); y += 16;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(20);
+    for (const s of short) {
+      const lines = doc.splitTextToSize(`${s.short} x ${s.name}: ${s.reason}`, W - M * 2 - 8);
+      ensure(lines.length * 12 + 6);
+      doc.text(lines, M + 4, y); y += lines.length * 12 + 4;
+    }
+    y += 10;
+  }
+  ensure(90);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(110);
+  doc.text('Unit costs come from the supplier’s paper invoice and are added at invoice review.', M, y); y += 30;
+  doc.setTextColor(20); doc.setFontSize(10);
+  doc.text('Manager decision:   [  ] Approved     [  ] Denied', M, y); y += 26;
+  doc.text('Manager: ______________________________     Date: ______________', M, y);
+  const pages = doc.getNumberOfPages();
+  for (let i = 1; i <= pages; i += 1) {
+    doc.setPage(i); doc.setFontSize(8); doc.setTextColor(140);
+    doc.text(`${po.number}  -  page ${i} of ${pages}`, W - M, H - 24, {align: 'right'});
+  }
+  return doc.output('blob');
 }
-async function decide(approve) {
-  const run = currentRun(), po = run && (run.pos || []).find(p => p.number === state.poNumber);
+function currentPO() { const run = currentRun(); return run ? (run.pos || []).find(p => p.number === state.poNumber) || null : null; }
+function saveFile(blob, name) {
+  const url = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = url; a.download = name; document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+function markShared(po) {
+  const run = currentRun();
+  replaceRun(Object.assign({}, run, {pos: run.pos.map(p => p.number === po.number ? Object.assign({}, p, {emailedAt: Date.now()}) : p)}));
+}
+$('po-email').addEventListener('click', async () => {
+  const run = currentRun(), po = currentPO(); if (!po) return;
+  if (!window.jspdf) { $('po-email-note').textContent = 'The PDF tool did not load. Check the connection and reload the page.'; return; }
+  const name = `${po.number}.pdf`;
+  const file = new File([buildPdf(run, po)], name, {type: 'application/pdf'});
+  const to = state.settings.emails;
+  if (navigator.canShare && navigator.canShare({files: [file]})) {
+    try {
+      await navigator.share({files: [file], title: `Purchase order ${po.number}`,
+        text: `Purchase order ${po.number} (${po.locationName}, ${units(po.totalUnits)}) for approval.${to ? ' Send to: ' + to : ''}`});
+      markShared(po); return;
+    } catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  // No share sheet (e.g. a computer): save the PDF, then open an email to attach it to.
+  try { saveFile(file, name); } catch (_e) {}
+  const subject = `Approve ${po.number}: ${po.locationName}, ${units(po.totalUnits)}`;
+  const body = `The itemized PDF ${name} was saved to this device. Please attach it to this email.\n\n${poText(run, po)}`;
+  markShared(po);
+  window.location.href = `mailto:${to.split(',').map(s => s.trim()).filter(Boolean).join(',')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+});
+$('po-pdf').addEventListener('click', () => {
+  const run = currentRun(), po = currentPO(); if (!po) return;
+  if (!window.jspdf) { $('po-email-note').textContent = 'The PDF tool did not load. Check the connection and reload the page.'; return; }
+  try { saveFile(buildPdf(run, po), `${po.number}.pdf`); $('po-email-note').textContent = `${po.number}.pdf saved.`; }
+  catch (_e) { $('po-email-note').textContent = 'Saving files is blocked here. Open the scanner from its GitHub link.'; }
+});
+function decide(approve) {
+  const run = currentRun(), po = currentPO();
   const err = $('po-error'); err.hidden = true;
   if (!po) return;
-  if (!state.settings.pinHash) { err.textContent = 'Set a manager PIN first in Products → Purchase order settings.'; err.hidden = false; return; }
-  const pin = $('po-pin').value.trim();
-  if (!pin || await pinHash(pin) !== state.settings.pinHash) {
+  if ($('po-pin').value.trim() !== MANAGER_PIN) {
     err.textContent = 'Wrong manager PIN.'; err.hidden = false; tone([220], 'square', .12); return;
   }
   const out = Core.decidePO(run, po.number, approve, $('po-reason').value, Date.now());
@@ -1250,7 +1406,7 @@ async function decide(approve) {
 $('po-approve').addEventListener('click', () => decide(true));
 $('po-deny').addEventListener('click', () => decide(false));
 $('po-next').addEventListener('click', () => {
-  const run = currentRun(), po = run && (run.pos || []).find(p => p.number === state.poNumber);
+  const run = currentRun(), po = currentPO();
   if (!po) return;
   state.poNumber = null;
   if (po.status === 'denied') state.stopId = po.locationId;
@@ -1272,89 +1428,21 @@ function renderSettings() {
   if (document.activeElement && document.activeElement.closest && document.activeElement.closest('#settings-form')) return;
   $('set-emails').value = state.settings.emails || '';
   $('set-name').value = state.settings.name || '';
-  $('set-current-wrap').hidden = !state.settings.pinHash;
-  $('set-pin-label').textContent = state.settings.pinHash ? 'New manager PIN (leave blank to keep it)' : 'Manager PIN (4 to 8 digits)';
 }
-$('settings-form').addEventListener('submit', async e => {
+$('settings-form').addEventListener('submit', e => {
   e.preventDefault();
   const err = $('set-error'); err.hidden = true;
   const emails = $('set-emails').value.split(',').map(s => s.trim()).filter(Boolean);
   if (emails.some(m => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m))) { err.textContent = 'Check the email address.'; err.hidden = false; return; }
-  const next = Object.assign({}, state.settings, {emails: emails.join(', '), name: $('set-name').value.trim()});
-  const pin = $('set-pin').value.trim();
-  if (pin) {
-    if (!/^[0-9]{4,8}$/.test(pin)) { err.textContent = 'The PIN must be 4 to 8 digits.'; err.hidden = false; return; }
-    if (state.settings.pinHash && await pinHash($('set-current').value.trim()) !== state.settings.pinHash) {
-      err.textContent = 'Enter the current manager PIN to change it.'; err.hidden = false; return;
-    }
-    next.pinHash = await pinHash(pin);
-  }
-  state.settings = next;
-  persist('settings', 'purchasing', Object.assign({}, next));
-  $('set-pin').value = ''; $('set-current').value = '';
+  state.settings = {emails: emails.join(', '), name: $('set-name').value.trim()};
+  persist('settings', 'purchasing', Object.assign({}, state.settings));
   $('set-status').textContent = 'Saved';
   setTimeout(() => { $('set-status').textContent = ''; }, 2000);
   document.activeElement.blur(); render();
 });
 
-/* ---------- products view ---------- */
-let confirmingProduct = null;
-function renderProducts() {
-  $('photo-note').textContent = assets ? 'Tap Add photo to photograph a product. The photo shows up when it is scanned.' :
-    state.mode === 'db' ? '' : 'Products added here are kept in this browser only.';
-  $('product-list').innerHTML = state.products.length ? state.products.slice().sort((a, b) => a.name.localeCompare(b.name)).map(p => `
-    <li class="item"><div class="thumb">${thumb(p)}</div>
-      <div style="min-width:0"><div class="name">${esc(p.name)}</div>
-        <div class="meta"><span class="bc">${esc(groupCode(p.barcode))}</span> · ${esc(p.unit)}${p.sku ? ' · ' + esc(p.sku) : ''}</div>
-        ${confirmingProduct === p.id ? `<div class="confirm" style="margin-top:8px"><span>Delete ${esc(p.name)}?</span>
-          <button class="btn danger" type="button" data-act="del-yes" data-id="${esc(p.id)}">Delete</button>
-          <button class="btn ghost" type="button" data-act="del-no">Keep</button></div>` : ''}
-      </div>
-      <div class="prod-actions">${assets ? `<button class="btn ghost" type="button" data-act="photo" data-id="${esc(p.id)}">${p.photoId ? 'New photo' : 'Add photo'}</button>` : ''}
-        <button class="btn danger" type="button" data-act="del" data-id="${esc(p.id)}">Delete</button></div>
-    </li>`).join('') : '<li><p class="empty">No products yet. Add the first one above by scanning its barcode.</p></li>';
-}
-let photoFor = null;
-$('product-list').addEventListener('click', e => {
-  const b = e.target.closest('button[data-act]'); if (!b) return;
-  const act = b.dataset.act, id = b.dataset.id;
-  if (act === 'del') { confirmingProduct = id; renderProducts(); }
-  else if (act === 'del-no') { confirmingProduct = null; renderProducts(); }
-  else if (act === 'del-yes') {
-    confirmingProduct = null;
-    state.products = state.products.filter(p => p.id !== id);
-    persist('products', id, null); render();
-  } else if (act === 'photo') { photoFor = id; $('photo-file').value = ''; $('photo-file').click(); }
-});
-$('photo-file').addEventListener('change', async () => {
-  const file = $('photo-file').files[0]; const p = productById(photoFor);
-  if (!file || !p || !assets) return;
-  $('photo-note').textContent = 'Uploading photo…';
-  try {
-    const img = await loadImage(file);
-    const canvas = scaled(img, 640);
-    const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', .82));
-    const up = await assets.upload(blob);
-    const updated = Object.assign({}, p, {photoId: up.id});
-    state.products = state.products.map(x => x.id === p.id ? updated : x);
-    persist('products', p.id, bodyOf(updated)); render();
-  } catch (_e) {
-    render(); $('photo-note').textContent = 'The photo could not be saved. Check your connection and try again.';
-  }
-});
-$('product-form').addEventListener('submit', e => {
-  e.preventDefault();
-  const r = Core.validateNewProduct(state.products, {barcode: $('pf-barcode').value, name: $('pf-name').value, sku: $('pf-sku').value, unit: $('pf-unit').value});
-  if (!r.ok) { $('pf-error').textContent = r.error; $('pf-error').hidden = false; return; }
-  const p = Object.assign({id: uid('p'), createdAt: Date.now()}, r.product);
-  state.products = state.products.concat([p]);
-  persist('products', p.id, bodyOf(p));
-  $('product-form').reset(); $('pf-error').hidden = true;
-  render(); $('pf-barcode').focus();
-});
-
 /* ---------- tabs and render ---------- */
-const TABS = ['count', 'purchase', 'check', 'products'];
+const TABS = ['count', 'purchase', 'check'];
 // Shows the scanner only where scanning means something, and stops the camera everywhere else.
 function layout() {
   const tab = state.tab, run = currentRun();
@@ -1363,7 +1451,6 @@ function layout() {
   $('scan-area').hidden = !scanning;
   $('view-count').hidden = tab !== 'count';
   $('view-purchase').hidden = tab !== 'purchase';
-  $('view-products').hidden = tab !== 'products';
   if (!scanning && live.stream) stopLive();
 }
 function setTab(tab) {
@@ -1378,7 +1465,7 @@ function setTab(tab) {
     if (state.stopId && !state.poNumber) show('idle', `At ${locationById(state.stopId).name}`, 'Tap an item, then scan it to confirm it is right.');
     else show('idle', 'Purchasing', 'Tap the location you are at. Go in order: Storage, then JA, then Midatlantic.');
   }
-  if (finePointer && tab !== 'products') $('scan-input').focus();
+  if (finePointer) $('scan-input').focus();
 }
 for (const t of TABS) $('tab-' + t).addEventListener('click', () => setTab(t));
 $('sound-toggle').addEventListener('click', () => {
@@ -1386,7 +1473,7 @@ $('sound-toggle').addEventListener('click', () => {
   $('sound-toggle').textContent = state.sound ? 'Sound on' : 'Sound off';
   $('sound-toggle').setAttribute('aria-pressed', String(state.sound));
 });
-function render() { renderCount(); renderPurchase(); renderFocus(); renderProducts(); renderSettings(); layout(); setSaveStatus(); }
+function render() { renderCount(); renderPurchase(); renderFocus(); renderSettings(); layout(); setSaveStatus(); }
 
 /* ---------- boot ---------- */
 function fromSnapshot(snap, collection, current) {
